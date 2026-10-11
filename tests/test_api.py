@@ -12,10 +12,22 @@ def test_meta(client):
     assert {"板橋", "台北車站"} <= {o["name"] for o in data["origins"]}
     assert "新片 A" in data["movies"]
     assert data["data"]["is_demo"]
+    assert "愛情" in data["options"]["genres"] and "素食" in data["options"]["diets"]
+
+
+def test_meta_lists_all_22_cities(client):
+    cities = client.get("/api/meta").json()["cities"]
+    assert len(cities) == 22
+    with_areas = {c["name"] for c in cities if c["areas"]}
+    assert with_areas == {"台北市", "新北市", "桃園市", "台中市", "台南市", "高雄市"}
+    hsinchu = next(c for c in cities if c["name"] == "新竹縣")
+    assert not hsinchu["areas"] and hsinchu["origins"]  # 沒有商圈資料，但可以從高鐵新竹出發
 
 
 def test_meta_dates_for_dropdowns(client, saturday):
-    dates = client.get("/api/meta").json()["dates"]
+    cities = client.get("/api/meta").json()["cities"]
+    xinyi = next(a for c in cities for a in c["areas"] if a["id"] == "台北市/信義")
+    dates = xinyi["dates"]
     assert dates[0]["date"] == min(d["date"] for d in dates)
     day = next(d for d in dates if d["date"] == saturday.isoformat())
     assert day["label"].endswith("（六）")
@@ -25,7 +37,8 @@ def test_meta_dates_for_dropdowns(client, saturday):
 def test_rule_parse(client, saturday):
     meta = client.get("/api/meta").json()
     fields = rule_parse(MESSAGE, saturday, meta)
-    assert fields["origin"] == "板橋"
+    assert fields["origin"] == "ntp-banqiao"
+    assert fields["area"] == "台北市/信義"
     assert fields["movie_query"] == "新片 A"
     assert fields["screen_types"] == ["IMAX"]
     assert fields["home_by"] == "22:30"
@@ -58,10 +71,22 @@ def test_plan_endpoint_reports_unknown_origin(client, saturday):
     assert "找不到出發站" in resp.json()["detail"]
 
 
+def test_ambiguous_station_name_asks_for_code(client, saturday):
+    resp = client.post("/api/plan", json={"date": saturday.isoformat(), "origin": "市政府"})
+    assert resp.status_code == 400
+    assert "tpe-cityhall" in resp.json()["detail"] and "txg-cityhall" in resp.json()["detail"]
+
+
+def test_area_without_data(client, saturday):
+    resp = client.post("/api/plan", json={"date": saturday.isoformat(), "area": "花蓮縣/市區"})
+    assert resp.status_code == 400
+    assert "還沒有" in resp.json()["detail"]
+
+
 def test_chat_falls_back_to_rules_without_llm(client):
     data = client.post("/api/chat", json={"message": MESSAGE}).json()
     assert data["parse"]["mode"] == "rules"
-    assert data["request"]["origin"] == "板橋"
+    assert data["request"]["origin"] == "ntp-banqiao"
     assert data["result"]["plans"]
     assert data["summary_source"] == "template"
 
@@ -75,6 +100,6 @@ def test_mcp_tools(client, saturday):
             return names, result, bad
 
     names, result, bad = anyio.run(run)
-    assert {"plan_date", "search_showtimes", "find_restaurants", "check_route"} <= names
+    assert {"list_areas", "plan_date", "search_showtimes", "find_restaurants", "check_route"} <= names
     assert result.structured_content["plans"]
     assert bad.is_error

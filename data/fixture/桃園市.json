@@ -1,0 +1,67 @@
+{
+  "_note": "示意資料：影城、餐廳、場次皆為虛構；台鐵、公車車程與班次為估計值。",
+  "areas": [
+    {"id": "桃園市/青埔", "city": "桃園市", "name": "青埔"}
+  ],
+  "stations": [
+    {"id": "tyn-taoyuan", "name": "桃園", "city": "桃園市", "lat": 24.9891, "lng": 121.3135, "transfer_min": 4, "is_origin": true},
+    {"id": "tyn-zhongli", "name": "中壢", "city": "桃園市", "lat": 24.9536, "lng": 121.2257, "transfer_min": 4, "is_origin": true},
+    {"id": "tyn-hsr", "name": "高鐵桃園", "city": "桃園市", "lat": 25.0130, "lng": 121.2150, "transfer_min": 8, "is_origin": true, "area_id": "桃園市/青埔"}
+  ],
+  "transit_links": [
+    {"from": "tyn-taoyuan", "to": "tyn-zhongli", "mode": "台鐵", "line": "台鐵縱貫線", "ride": 10, "headway": 15, "first": "05:30", "last": "24:00", "both_ways": true},
+    {"from": "tyn-zhongli", "to": "tyn-hsr", "mode": "公車", "line": "公車（中壢—高鐵桃園）", "ride": 20, "headway": 20, "first": "06:00", "last": "22:30", "both_ways": true},
+    {"from": "tyn-taoyuan", "to": "tyn-hsr", "mode": "公車", "line": "公車（桃園—高鐵桃園）", "ride": 30, "headway": 20, "first": "06:00", "last": "22:30", "both_ways": true}
+  ],
+  "cinemas": [
+    {"external_id": "TYN-QP-C1", "name": "青埔影城", "area_id": "桃園市/青埔", "lat": 25.0125, "lng": 121.2172},
+    {"external_id": "TYN-QP-C2", "name": "星空影城 青埔", "area_id": "桃園市/青埔", "lat": 25.0105, "lng": 121.2190}
+  ],
+  "showtime_templates": [
+    {"cinema": "TYN-QP-C1", "movie": "M1", "label": "IMAX 2D 英語", "price": 380, "times": ["15:40", "18:20", "21:00"]},
+    {"cinema": "TYN-QP-C1", "movie": "M2", "label": "數位 英語", "price": 280, "times": ["17:00", "19:30"]},
+    {"cinema": "TYN-QP-C1", "movie": "M3", "label": "4DX 3D 英語", "price": 450, "times": ["20:10"]},
+    {"cinema": "TYN-QP-C2", "movie": "M1", "label": "數位 英語", "price": 280, "times": ["16:50", "19:40"]},
+    {"cinema": "TYN-QP-C2", "movie": "M4", "label": "數位 英語", "price": 260, "times": ["18:10"]},
+    {"cinema": "TYN-QP-C2", "movie": "M2", "label": "數位 國語配音", "price": 260, "times": ["16:00"]},
+    {"cinema": "TYN-QP-C2", "movie": "M6", "label": "數位", "price": 260, "times": ["17:20", "19:50"]}
+  ],
+  "restaurants": [
+    {
+      "external_id": "TYN-QP-R01", "name": "青埔景觀餐廳", "area_id": "桃園市/青埔", "lat": 25.0118, "lng": 121.2180,
+      "description": "湖畔景觀西式餐廳，戶外座位看夜景，適合約會。",
+      "reviews": ["氣氛很浪漫", "排餐不錯", "週末要訂位"],
+      "price_per_person": 1200, "hours": {"default": ["17:00", "22:30"]}, "last_order_min": 60, "typical_wait_min": 0, "reservable": true
+    },
+    {
+      "external_id": "TYN-QP-R02", "name": "購物中心美食街", "area_id": "桃園市/青埔", "lat": 25.0115, "lng": 121.2165,
+      "description": "百貨美食街，選擇多、價格平實，用餐時間擁擠。",
+      "reviews": ["選擇很多", "假日人很多", "找位子要碰運氣"],
+      "price_per_person": 250, "hours": {"default": ["11:00", "21:30"]}, "last_order_min": 30, "typical_wait_min": 5, "reservable": false
+    },
+    {
+      "external_id": "TYN-QP-R03", "name": "青埔拉麵", "area_id": "桃園市/青埔", "lat": 25.0135, "lng": 121.2195,
+      "description": "日式拉麵，吧台座位，翻桌快。",
+      "reviews": ["湯頭濃郁", "要排隊", "吃完就走"],
+      "price_per_person": 280, "hours": {"default": ["11:00", "22:00"]}, "last_order_min": 30, "typical_wait_min": 20, "reservable": false
+    },
+    {
+      "external_id": "TYN-QP-R04", "name": "森林火鍋", "area_id": "桃園市/青埔", "lat": 25.0100, "lng": 121.2175,
+      "description": "個人火鍋，座位寬敞，可以慢慢聊天。",
+      "reviews": ["湯頭清爽", "服務好", "適合兩人"],
+      "price_per_person": 450, "hours": {"default": ["11:30", "22:30"]}, "last_order_min": 45, "typical_wait_min": 15, "reservable": true
+    },
+    {
+      "external_id": "TYN-QP-R05", "name": "窗邊甜點咖啡", "area_id": "桃園市/青埔", "lat": 25.0128, "lng": 121.2158,
+      "description": "咖啡、蛋糕與蔬食輕食，窗邊安靜，有景觀座位。",
+      "reviews": ["蛋糕好吃", "下午茶首選", "晚上九點打烊"],
+      "price_per_person": 280, "hours": {"default": ["10:00", "21:00"]}, "last_order_min": 30, "typical_wait_min": 10, "reservable": false
+    },
+    {
+      "external_id": "TYN-QP-R06", "name": "泰式小館", "area_id": "桃園市/青埔", "lat": 25.0140, "lng": 121.2170,
+      "description": "泰式料理，打拋豬與綠咖哩，用餐熱鬧。",
+      "reviews": ["口味道地", "有點吵", "份量大"],
+      "price_per_person": 400, "hours": {"default": ["11:30", "21:30"]}, "last_order_min": 45, "typical_wait_min": 10, "reservable": true
+    }
+  ]
+}

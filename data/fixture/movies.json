@@ -1,0 +1,19 @@
+{
+  "_note": "示意資料：片名、片長、簡介皆為虛構，全台共用。",
+  "movies": [
+    {"external_id": "M1", "title": "新片 A", "runtime_min": 128, "genre": "動作",
+     "synopsis": "退休特務被迫重出江湖，在城市高樓間展開追逐，節奏明快、爆破場面多。"},
+    {"external_id": "M2", "title": "午後的貓", "runtime_min": 106, "genre": "愛情",
+     "synopsis": "兩個在咖啡廳偶遇的陌生人，因為一隻流浪貓慢慢走近彼此，溫柔細膩。"},
+    {"external_id": "M3", "title": "星際迴響", "runtime_min": 142, "genre": "科幻",
+     "synopsis": "太空人收到來自未來的訊號，必須在時間崩解前做出選擇，畫面壯觀、劇情燒腦。"},
+    {"external_id": "M4", "title": "新片 A：序章（重映）", "runtime_min": 112, "genre": "動作",
+     "synopsis": "《新片 A》前傳重新上映，交代主角成為特務之前的故事。"},
+    {"external_id": "M5", "title": "雲朵郵差", "runtime_min": 96, "genre": "動畫",
+     "synopsis": "一個小郵差在雲端替大家送信的冒險故事，畫風溫暖療癒，大人小孩都適合。"},
+    {"external_id": "M6", "title": "阿嬤的婚禮", "runtime_min": 112, "genre": "喜劇",
+     "synopsis": "固執的阿嬤突然宣布要再婚，一家人雞飛狗跳又笑中帶淚的家庭喜劇。"},
+    {"external_id": "M7", "title": "深夜來電", "runtime_min": 101, "genre": "恐怖",
+     "synopsis": "接到已故好友的來電之後，怪事一件接著一件發生的驚悚恐怖片。"}
+  ]
+}

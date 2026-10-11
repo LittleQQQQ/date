@@ -1,10 +1,27 @@
-from .questions import AUDIO, CUISINE, DATE_FIT, MEAL_MINUTES, MEAL_PACE, SCREEN, TITLE_MATCH, JevAnswer, Question
+from .questions import (
+    AUDIO,
+    CUISINE,
+    DATE_FIT,
+    DIETS,
+    GENRES,
+    MEAL_MINUTES,
+    MEAL_PACE,
+    SCREEN,
+    TITLE_MATCH,
+    JevAnswer,
+    Question,
+    diet_question,
+    movie_choice_question,
+    restaurant_choice_question,
+)
 from .service import JevService
 
 __all__ = [
     "AUDIO",
     "CUISINE",
     "DATE_FIT",
+    "DIETS",
+    "GENRES",
     "MEAL_MINUTES",
     "MEAL_PACE",
     "SCREEN",
@@ -12,4 +29,7 @@ __all__ = [
     "JevAnswer",
     "JevService",
     "Question",
+    "diet_question",
+    "movie_choice_question",
+    "restaurant_choice_question",
 ]

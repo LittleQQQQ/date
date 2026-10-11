@@ -62,6 +62,93 @@ def test_dinner_first_only(session, saturday):
     assert all(p["order"] == "dinner_first" for p in res["plans"])
 
 
+def test_cross_city_uses_high_speed_rail(session, saturday):
+    res = _plan(session, saturday, origin="台中車站", area="台北市/信義", depart_after="12:00", home_by="24:30")
+    assert res["plans"], res["rejections"]
+    titles = [s["title"] for s in res["plans"][0]["steps"]]
+    assert any("高鐵" in t for t in titles)
+    assert not any("車站站" in t for t in titles)
+
+
+def test_every_area_can_be_planned_from_its_own_city(session, saturday):
+    local = {
+        "台北市/西門町": "台北車站", "新北市/板橋": "府中", "桃園市/青埔": "中壢",
+        "台中市/七期": "台中車站", "台南市/中西區": "永康", "高雄市/巨蛋": "左營",
+    }
+    for area, origin in local.items():
+        res = _plan(session, saturday, origin=origin, area=area, home_by="23:30")
+        assert res["plans"], (area, res["rejections"])
+
+
+def test_station_walk_is_capped(session, saturday):
+    from app.planner import STATION_WALK_MAX
+
+    res = _plan(session, saturday, origin="永康", area="台南市/中西區", home_by="23:30")
+    for p in res["plans"]:
+        walks = [s for s in p["steps"] if s["kind"] == "walk" and "站" in s["title"]]
+        assert all(int(s["detail"].split()[1]) <= STATION_WALK_MAX for s in walks)
+
+
+def test_labels_tell_the_truth(session, saturday):
+    cases = [
+        {},
+        {"origin": "台北車站", "area": "台中市/七期", "depart_after": "12:00", "home_by": "24:30"},
+        {"origin": "左營", "area": "高雄市/巨蛋"},
+    ]
+    for extra in cases:
+        plans = _plan(session, saturday, **extra)["plans"]
+        assert plans
+        cheapest = min(p["cost_per_person"] for p in plans)
+        safest = max(p["tightest_buffer_min"] for p in plans)
+        for p in plans:
+            if "最省" in p["labels"]:
+                assert p["cost_per_person"] == cheapest
+            if "最穩" in p["labels"]:
+                assert p["tightest_buffer_min"] == safest
+        assert plans[0]["labels"][0] == "Jev 首選"
+        confidences = [p["jev_confidence"] for p in plans]
+        assert confidences == sorted(confidences, reverse=True)  # 依 Jev 的組合信心排序
+
+
+def test_jev_picks_movie_by_genre(session, saturday):
+    romance = _plan(session, saturday, genre="愛情")
+    assert romance["plans"][0]["movie"]["genre"] == "愛情"
+    action = _plan(session, saturday, genre="動作")
+    assert action["plans"][0]["movie"]["genre"] == "動作"
+    assert action["plans"][0]["jev_choice"]["movie"]["prob"] > 0.5
+
+
+def test_pinned_movie_skips_movie_choice(session, saturday):
+    res = _plan(session, saturday, movie_query="新片 A")
+    assert all(p["movie"]["title"] == "新片 A" for p in res["plans"])
+    assert all(p["jev_choice"]["movie"]["source"] == "user" for p in res["plans"])
+    assert not any(c["key"].startswith("movie_choice:") for c in res["confirmations"])
+
+
+def test_user_can_switch_jevs_movie(session, saturday):
+    first = _plan(session, saturday)
+    ask = next(c for c in first["confirmations"] if c["key"].startswith("movie_choice:"))
+    other = next(o for o in ask["options"] if o != ask["jev_guess"])
+    switched = _plan(session, saturday, overrides={ask["key"]: other})
+    assert switched["plans"][0]["movie"]["title"] == other
+    assert switched["plans"][0]["jev_choice"]["movie"]["source"] == "user"
+
+
+def test_diet_filters_restaurants(session, saturday):
+    res = _plan(session, saturday, diet="素食")
+    assert res["plans"]
+    for p in res["plans"]:
+        diet = next(a for a in p["jev"] if a["key"].startswith("diet_ok:"))
+        assert diet["top"] == "可以"
+    assert res["filters"]["restaurants"]["reasons"].get("不符合飲食限制", 0) > 0
+
+
+def test_note_when_wanted_genre_cannot_fit(session, saturday):
+    res = _plan(session, saturday, genre="恐怖")  # 信義的恐怖片 20:40 才開演，22:30 前回不了板橋
+    assert res["plans"]
+    assert any("恐怖片" in n for n in res["notes"])
+
+
 def test_overnight_deadline(session, saturday):
     req = PlanRequest(date=saturday, depart_after="19:00", home_by="00:30")
     assert req.home_by == "24:30"

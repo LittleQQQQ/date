@@ -1,6 +1,8 @@
-"""示意資料來源：讀 data/fixture.json，場次依範本產生指定日期範圍。
+"""示意資料來源：讀 data/fixture/ 底下的所有 JSON（每個縣市一個檔），場次依範本產生指定日期範圍。
 
-店名、影城、場次、捷運時間都是虛構或估計的，只用來展示流程。
+影城、餐廳、場次都是虛構的；捷運、台鐵、高鐵、公車的車程與班次是估計值，只用來展示流程。
+
+交通路段在 JSON 裡可以寫 "both_ways": true，代表反方向也有一樣的路段（末班車可用 last_back 另外指定）。
 """
 from __future__ import annotations
 
@@ -10,6 +12,7 @@ from pathlib import Path
 
 from ..config import ROOT_DIR
 from .base import (
+    AreaRecord,
     Batch,
     CinemaRecord,
     Collector,
@@ -20,15 +23,44 @@ from .base import (
     TransitLinkRecord,
 )
 
+LIST_KEYS = ("areas", "stations", "transit_links", "cinemas", "movies", "restaurants", "showtime_templates")
+
+
+def _links(item: dict) -> list[TransitLinkRecord]:
+    common = {"mode": item["mode"], "line": item["line"], "ride_min": item["ride"], "headway_min": item["headway"]}
+    links = [
+        TransitLinkRecord(
+            from_station_id=item["from"], to_station_id=item["to"],
+            first_train=item["first"], last_train=item["last"], **common,
+        )
+    ]
+    if item.get("both_ways"):
+        links.append(
+            TransitLinkRecord(
+                from_station_id=item["to"], to_station_id=item["from"],
+                first_train=item.get("first_back", item["first"]), last_train=item.get("last_back", item["last"]),
+                **common,
+            )
+        )
+    return links
+
 
 class FixtureCollector(Collector):
     name = "fixture"
 
-    def __init__(self, path: Path | None = None):
-        self.path = path or ROOT_DIR / "data" / "fixture.json"
+    def __init__(self, folder: Path | None = None):
+        self.folder = folder or ROOT_DIR / "data" / "fixture"
+
+    def _load(self) -> dict[str, list]:
+        merged: dict[str, list] = {key: [] for key in LIST_KEYS}
+        for path in sorted(self.folder.glob("*.json")):
+            data = json.loads(path.read_text(encoding="utf-8"))
+            for key in LIST_KEYS:
+                merged[key].extend(data.get(key, []))
+        return merged
 
     def collect(self, start: dt.date, days: int) -> Batch:
-        data = json.loads(self.path.read_text(encoding="utf-8"))
+        data = self._load()
         movie_titles = {m["external_id"]: m["title"] for m in data["movies"]}
 
         showtimes = []
@@ -50,8 +82,9 @@ class FixtureCollector(Collector):
                     )
 
         return Batch(
+            areas=[AreaRecord(**a) for a in data["areas"]],
             stations=[StationRecord(**s) for s in data["stations"]],
-            transit_links=[TransitLinkRecord(**link) for link in data["transit_links"]],
+            transit_links=[link for item in data["transit_links"] for link in _links(item)],
             cinemas=[CinemaRecord(**c) for c in data["cinemas"]],
             movies=[MovieRecord(**m) for m in data["movies"]],
             restaurants=[RestaurantRecord(**r) for r in data["restaurants"]],

@@ -19,7 +19,7 @@ MEAL_PACE = Question("meal_pace", "在這家餐廳吃一餐大約要多久？", 
 CUISINE = Question(
     "cuisine",
     "這家餐廳屬於哪一類料理？",
-    ("日式", "韓式", "中式", "義式／西式", "美式", "泰式／南洋", "火鍋／燒肉", "咖啡／甜點", "酒館"),
+    ("日式", "韓式", "中式／台式", "義式／西式", "美式", "泰式／南洋", "火鍋／燒肉", "咖啡／甜點", "酒館"),
 )
 SCREEN = Question("screen_type", "這個場次是哪一種影廳？", ("IMAX", "4DX", "一般廳"))
 AUDIO = Question("audio_language", "這個場次是原音還是配音？", ("原音", "國語配音"))
@@ -27,6 +27,25 @@ TITLE_MATCH = Question("title_match", "這個場次的片名，是不是使用�
 
 # 用餐快慢 → 預估用餐分鐘數（程式計算用，不是 Jev 產生的數字）
 MEAL_MINUTES = {"快速": 40, "一般": 60, "慢食": 90}
+
+# 使用者可以選的偏好（給 Jev 做選擇時參考）
+GENRES = ("動作", "愛情", "科幻", "動畫", "喜劇", "劇情", "恐怖")
+DIETS = ("不吃辣", "素食", "不吃牛")
+
+
+def diet_question(diet: str) -> Question:
+    return Question("diet_ok", f"這家餐廳能滿足「{diet}」的需求嗎？", ("可以", "不行"))
+
+
+# ---------- 選擇題：選項每次不同，由程式先篩出排得進去的候選 ----------
+
+
+def movie_choice_question(titles: list[str]) -> Question:
+    return Question("movie_choice", "根據使用者條件，這次約會最適合看下面哪一部電影？", tuple(titles))
+
+
+def restaurant_choice_question(movie: str, names: list[str]) -> Question:
+    return Question("restaurant_choice", f"這次約會看《{movie}》，最適合去下面哪一家吃飯？", tuple(names))
 
 
 @dataclass

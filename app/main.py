@@ -14,7 +14,7 @@ from fastapi.staticfiles import StaticFiles
 from . import models  # noqa: F401  註冊資料表
 from .api import router
 from .config import ROOT_DIR
-from .db import Base, SessionLocal, engine
+from .db import Base, SessionLocal, engine, schema_message, schema_problems
 from .ingest import ensure_demo_data
 from .mcp_server import mcp
 
@@ -24,6 +24,8 @@ mcp_app = mcp.streamable_http_app(streamable_http_path="/mcp", stateless_http=Tr
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     Base.metadata.create_all(engine)
+    if problems := schema_problems():
+        raise RuntimeError(schema_message(problems))
     with SessionLocal() as session:
         ensure_demo_data(session)
     async with mcp.session_manager.run():

@@ -4,6 +4,7 @@
     python -m app.ingest                      # 預設：示意資料，今天起 14 天的場次
     python -m app.ingest --source fixture --days 7
     python -m app.ingest --no-jev             # 只匯入，不跑 Jev
+    python -m app.ingest --reset              # 資料表結構改過時用：清空並重建所有資料表後再匯入
 """
 from __future__ import annotations
 
@@ -15,11 +16,11 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
 from .collectors import Batch, Collector, get_collector
-from .db import Base, SessionLocal, engine
+from .db import Base, SessionLocal, engine, schema_message, schema_problems
 from .jev import AUDIO, CUISINE, DATE_FIT, MEAL_PACE, SCREEN, JevService
 from .jev.mock import normalize_title
 from .jev.service import label_subject, restaurant_context, restaurant_subject
-from .models import Cinema, Movie, Restaurant, ScrapeRun, Showtime, Station, TransitLink
+from .models import Area, Cinema, Movie, Restaurant, ScrapeRun, Showtime, Station, TransitLink
 from .timeutil import now_tw, today_tw
 
 T = TypeVar("T", Cinema, Movie, Restaurant)
@@ -44,19 +45,22 @@ def upsert_batch(session: Session, source: str, batch: Batch) -> dict[str, int]:
     now = now_tw()
     counts: dict[str, int] = {}
 
-    for rec in batch.stations:
-        row = session.get(Station, rec.id) or Station(id=rec.id)
-        for field, value in rec.model_dump().items():
-            setattr(row, field, value)
-        row.source, row.fetched_at = source, now
-        session.add(row)
-    counts["stations"] = len(batch.stations)
-    session.flush()
+    for model, records in ((Area, batch.areas), (Station, batch.stations)):
+        for rec in records:
+            row = session.get(model, rec.id) or model(id=rec.id)
+            for field, value in rec.model_dump().items():
+                setattr(row, field, value)
+            row.source, row.fetched_at = source, now
+            session.add(row)
+        session.flush()
+    counts.update(areas=len(batch.areas), stations=len(batch.stations))
 
     for rec in batch.transit_links:
         row = session.scalar(
             select(TransitLink).where(
-                TransitLink.from_station_id == rec.from_station_id, TransitLink.to_station_id == rec.to_station_id
+                TransitLink.from_station_id == rec.from_station_id,
+                TransitLink.to_station_id == rec.to_station_id,
+                TransitLink.line == rec.line,
             )
         ) or TransitLink()
         for field, value in rec.model_dump().items():
@@ -167,9 +171,14 @@ def main() -> None:
     parser.add_argument("--source", default="fixture", help="資料來源名稱（見 app/collectors/__init__.py）")
     parser.add_argument("--days", type=int, default=14, help="抓幾天的場次")
     parser.add_argument("--no-jev", action="store_true", help="只匯入，不跑 Jev 預先判斷")
+    parser.add_argument("--reset", action="store_true", help="清空並重建所有資料表（會刪除現有資料）")
     args = parser.parse_args()
 
+    if args.reset:
+        Base.metadata.drop_all(engine)
     Base.metadata.create_all(engine)
+    if problems := schema_problems():
+        raise SystemExit(schema_message(problems))
     with SessionLocal() as session:
         run = run_collector(session, get_collector(args.source), days=args.days, judge=not args.no_jev)
     if run.status == "ok":

@@ -1,4 +1,4 @@
-"""服務層：從資料庫讀資料、準備 Jev 判斷，再交給 planner 計算。
+"""服務層：從資料庫讀資料、準備 Jev 判斷與交通路網，再交給 planner 計算。
 
 REST API（app/api.py）和 MCP 工具（app/mcp_server.py）都呼叫這裡，兩邊的結果一定一致。
 """
@@ -6,19 +6,33 @@ from __future__ import annotations
 
 import datetime as dt
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from . import planner
 from .config import settings
 from .geo import walk_minutes
-from .jev import AUDIO, CUISINE, DATE_FIT, MEAL_MINUTES, MEAL_PACE, SCREEN, TITLE_MATCH, JevService
+from .jev import (
+    AUDIO,
+    CUISINE,
+    DATE_FIT,
+    DIETS,
+    GENRES,
+    MEAL_MINUTES,
+    MEAL_PACE,
+    SCREEN,
+    TITLE_MATCH,
+    JevService,
+    diet_question,
+)
 from .jev.service import label_subject, restaurant_context, restaurant_subject, title_subject
-from .models import Cinema, Movie, Restaurant, ScrapeRun, Showtime, Station, TransitLink
-from .planner import LinkInfo, Place, PlanContext, RestaurantInfo, ShowtimeInfo
+from .models import Area, Cinema, Movie, Restaurant, ScrapeRun, Showtime, Station, TransitLink
+from .planner import Place, PlanContext, RestaurantInfo, ShowtimeInfo
+from .regions import TAIWAN_CITIES
 from .schemas import PlanRequest
 from .timeutil import WEEKDAY_KEYS, fmt, to_min, today_tw, weekday_label
+from .transit import Edge, Node, TransitGraph
 
 STATION_ALIASES = {"北車": "台北車站", "台北101": "台北101/世貿", "101": "台北101/世貿"}
 
@@ -36,13 +50,18 @@ def _save_judgments(session: Session) -> None:
 
 
 def resolve_station(session: Session, value: str) -> Station | None:
-    """用代碼或站名找捷運站，「板橋站」「板橋」「BL07」都可以。"""
+    """用代碼或站名找車站，「板橋站」「板橋」「ntp-banqiao」都可以。站名重複（例如兩個市政府）時要用代碼。"""
     raw = value.strip().replace("臺", "台")
+    if station := session.get(Station, raw):
+        return station
     for name in (raw, raw.removesuffix("站"), raw + "站"):
         name = STATION_ALIASES.get(name, name)
-        station = session.get(Station, name) or session.scalar(select(Station).where(Station.name == name))
-        if station:
-            return station
+        matches = list(session.scalars(select(Station).where(Station.name == name)))
+        if len(matches) > 1:
+            options = "、".join(f"{s.city}{s.name}（{s.id}）" for s in matches)
+            raise ValueError(f"有不只一個「{name}」站，請改用代碼：{options}")
+        if matches:
+            return matches[0]
     return None
 
 
@@ -55,31 +74,46 @@ def hours_for(hours: dict, day: dt.date) -> tuple[int, int] | None:
     return to_min(span[0]), to_min(span[1])
 
 
-def _origins(session: Session) -> list[Station]:
-    return list(session.scalars(select(Station).where(Station.is_origin.is_(True)).order_by(Station.id)))
+def load_graph(session: Session) -> TransitGraph:
+    nodes = [Node(s.id, s.name, s.transfer_min) for s in session.scalars(select(Station))]
+    edges = [
+        Edge(
+            link.from_station_id, link.to_station_id, link.mode, link.line, link.ride_min, link.headway_min,
+            to_min(link.first_train), to_min(link.last_train),
+        )
+        for link in session.scalars(select(TransitLink))
+    ]
+    return TransitGraph(nodes, edges)
+
+
+def _area_and_origin(session: Session, area_id: str, origin: str) -> tuple[Area, Station, list[Station]]:
+    area = session.get(Area, area_id)
+    if area is None:
+        raise ValueError(f"還沒有「{area_id}」這個商圈的資料")
+    station = resolve_station(session, origin)
+    if station is None:
+        raise ValueError(f"找不到出發站「{origin}」")
+    area_stations = list(session.scalars(select(Station).where(Station.area_id == area.id)))
+    if not area_stations:
+        raise ValueError(f"「{area.city}{area.name}」沒有可以抵達的車站資料")
+    return area, station, area_stations
 
 
 def build_context(session: Session, req: PlanRequest, jev: JevService) -> tuple[PlanContext, dict]:
-    origin = resolve_station(session, req.origin)
-    if origin is None or not origin.is_origin:
-        names = "、".join(s.name for s in _origins(session))
-        raise ValueError(f"找不到出發站「{req.origin}」，目前可以選：{names}")
-    area_stations = list(session.scalars(select(Station).where(Station.area == req.area)))
-    if not area_stations:
-        raise ValueError(f"還沒有「{req.area}」商圈的資料")
-
-    links = {
-        (link.from_station_id, link.to_station_id): LinkInfo(
-            link.ride_min, link.headway_min, to_min(link.first_train), to_min(link.last_train)
-        )
-        for link in session.scalars(select(TransitLink))
-    }
+    area, origin, area_stations = _area_and_origin(session, req.area, req.origin)
+    if not origin.is_origin:
+        raise ValueError(f"「{origin.name}」不能當出發站")
+    graph = load_graph(session)
+    if not any(graph.reachable(origin.id, s.id) for s in area_stations) or not any(
+        graph.reachable(s.id, origin.id) for s in area_stations
+    ):
+        raise ValueError(f"目前沒有從{origin.city}{origin.name}站到{area.city}{area.name}的交通資料")
 
     rows = session.execute(
         select(Showtime, Cinema, Movie)
         .join(Cinema, Showtime.cinema_id == Cinema.id)
         .outerjoin(Movie, Showtime.movie_id == Movie.id)
-        .where(Showtime.date == req.date.isoformat(), Cinema.area == req.area)
+        .where(Showtime.date == req.date.isoformat(), Cinema.area_id == area.id)
         .order_by(Showtime.start)
     ).all()
 
@@ -107,11 +141,14 @@ def build_context(session: Session, req: PlanRequest, jev: JevService) -> tuple[
                 screen=jev.ask(SCREEN, label_subject(st.label), {"label": st.label}).apply_override(ov),
                 audio=jev.ask(AUDIO, label_subject(st.label), {"label": st.label}).apply_override(ov),
                 title_match=title_match,
+                genre=movie.genre,
+                synopsis=movie.synopsis,
             )
         )
 
+    diet = diet_question(req.diet) if req.diet else None
     restaurants, closed = [], 0
-    for r in session.scalars(select(Restaurant).where(Restaurant.area == req.area)):
+    for r in session.scalars(select(Restaurant).where(Restaurant.area_id == area.id)):
         span = hours_for(r.hours, req.date)
         if span is None:
             closed += 1
@@ -129,17 +166,25 @@ def build_context(session: Session, req: PlanRequest, jev: JevService) -> tuple[
                 date_fit=jev.ask(DATE_FIT, subject, context).apply_override(ov),
                 pace=jev.ask(MEAL_PACE, subject, context).apply_override(ov),
                 cuisine=jev.ask(CUISINE, subject, context).apply_override(ov),
+                description=r.description,
+                reviews=list(r.reviews or []),
+                diet_ok=(
+                    jev.ask(diet, f"{subject}|diet:{req.diet}", {**context, "diet": req.diet}).apply_override(ov)
+                    if diet
+                    else None
+                ),
             )
         )
 
     ctx = PlanContext(
         origin=_place(origin),
         area_stations=[_place(s) for s in area_stations],
-        links=links,
+        graph=graph,
         showtimes=showtimes,
         restaurants=restaurants,
         weekend=req.date.weekday() >= 4,  # 週五晚上到週日
         threshold=settings.jev_confidence_threshold,
+        ask=lambda question, subject, context: jev.ask(question, subject, context).apply_override(ov),
     )
     return ctx, {"showtimes_without_movie": without_movie, "restaurants_closed": closed}
 
@@ -156,13 +201,13 @@ def plan_date(session: Session, req: PlanRequest) -> dict:
     return result
 
 
-def search_showtimes(session: Session, date: dt.date, area: str = "信義", movie_query: str = "") -> list[dict]:
+def search_showtimes(session: Session, date: dt.date, area: str = "台北市/信義", movie_query: str = "") -> list[dict]:
     jev = JevService(session)
     rows = session.execute(
         select(Showtime, Cinema, Movie)
         .join(Cinema, Showtime.cinema_id == Cinema.id)
         .outerjoin(Movie, Showtime.movie_id == Movie.id)
-        .where(Showtime.date == date.isoformat(), Cinema.area == area)
+        .where(Showtime.date == date.isoformat(), Cinema.area_id == area)
         .order_by(Showtime.start)
     ).all()
     out = []
@@ -198,7 +243,7 @@ def find_restaurants(
     day = date or today_tw()
     jev = JevService(session)
     out = []
-    for r in session.scalars(select(Restaurant).where(Restaurant.area == cinema.area)):
+    for r in session.scalars(select(Restaurant).where(Restaurant.area_id == cinema.area_id)):
         walk = walk_minutes(cinema, r)
         if walk > max_walk_min:
             continue
@@ -226,30 +271,26 @@ def find_restaurants(
     return sorted(out, key=lambda x: x["walk_min"])
 
 
-def check_route(session: Session, origin: str, area: str = "信義", depart_at: str = "") -> list[dict]:
-    station = resolve_station(session, origin)
-    if station is None:
-        raise ValueError(f"找不到出發站「{origin}」")
+def check_route(session: Session, origin: str, area: str = "台北市/信義", depart_at: str = "18:00") -> list[dict]:
+    """從出發站在 depart_at 出發，到商圈各車站最早幾點到、怎麼轉乘。"""
+    _, station, area_stations = _area_and_origin(session, area, origin)
+    graph = load_graph(session)
+    start = to_min(depart_at or "18:00")
     out = []
-    for target in session.scalars(select(Station).where(Station.area == area)):
-        go = session.scalar(
-            select(TransitLink).where(TransitLink.from_station_id == station.id, TransitLink.to_station_id == target.id)
-        )
-        back = session.scalar(
-            select(TransitLink).where(TransitLink.from_station_id == target.id, TransitLink.to_station_id == station.id)
-        )
-        if go is None:
+    for target in area_stations:
+        route = graph.earliest_arrival(station.id, start, target.id)
+        if route is None:
             continue
-        item = {
-            "to": target.name,
-            "ride_min": go.ride_min,
-            "headway_min": go.headway_min,
-            "note": go.note,
-            "last_train_back": fmt(to_min(back.last_train)) if back else None,
-        }
-        if depart_at:
-            item["latest_arrival"] = fmt(to_min(depart_at) + go.headway_min + go.ride_min)
-        out.append(item)
+        out.append(
+            {
+                "to": target.name,
+                "arrive": fmt(route.arrive),
+                "legs": [
+                    {"line": leg.label, "from": leg.from_name, "to": leg.to_name, "board": fmt(leg.board), "alight": fmt(leg.alight)}
+                    for leg in route.legs
+                ],
+            }
+        )
     return out
 
 
@@ -265,35 +306,62 @@ def data_status(session: Session) -> dict:
     return {"sources": sources, "is_demo": "fixture" in latest}
 
 
-def available_dates(session: Session) -> list[dict]:
-    """今天以後有場次的日期，以及當天有上映的電影（給網頁的下拉選單用）。"""
+def available_dates(session: Session) -> dict[str, list[dict]]:
+    """每個商圈今天以後有場次的日期，以及當天有上映的電影（給網頁的下拉選單用）。"""
     rows = session.execute(
-        select(Showtime.date, Movie.title)
+        select(Cinema.area_id, Showtime.date, Movie.title)
+        .join(Cinema, Showtime.cinema_id == Cinema.id)
         .join(Movie, Showtime.movie_id == Movie.id)
         .where(Showtime.date >= today_tw().isoformat())
         .distinct()
     ).all()
-    by_date: dict[str, set[str]] = {}
-    for day, title in rows:
-        by_date.setdefault(day, set()).add(title)
-    return [
-        {"date": day, "label": weekday_label(dt.date.fromisoformat(day)), "movies": sorted(titles)}
-        for day, titles in sorted(by_date.items())
-    ]
+    grouped: dict[str, dict[str, set[str]]] = {}
+    for area, day, title in rows:
+        grouped.setdefault(area, {}).setdefault(day, set()).add(title)
+    return {
+        area: [
+            {"date": day, "label": weekday_label(dt.date.fromisoformat(day)), "movies": sorted(titles)}
+            for day, titles in sorted(days.items())
+        ]
+        for area, days in grouped.items()
+    }
+
+
+def list_cities(session: Session) -> list[dict]:
+    """全台 22 縣市，附上各縣市有資料的商圈（含可選日期）與出發站。"""
+    dates = available_dates(session)
+    areas = session.scalars(select(Area).order_by(Area.id)).all()
+    # 轉乘時間長的通常是大站（台北車站、左營），排前面當預設出發站
+    origins = session.scalars(
+        select(Station).where(Station.is_origin.is_(True)).order_by(Station.transfer_min.desc(), Station.id)
+    ).all()
+    cities = []
+    for region, city in TAIWAN_CITIES:
+        city_areas = [{"id": a.id, "name": a.name, "dates": dates[a.id]} for a in areas if a.city == city and a.id in dates]
+        city_origins = [{"id": s.id, "name": s.name} for s in origins if s.city == city]
+        cities.append({"name": city, "region": region, "areas": city_areas, "origins": city_origins})
+    return cities
 
 
 def meta(session: Session) -> dict:
+    cities = list_cities(session)
     return {
         "today": today_tw().isoformat(),
-        "dates": available_dates(session),
-        "origins": [{"id": s.id, "name": s.name} for s in _origins(session)],
-        "areas": sorted({a for a in session.scalars(select(Station.area).where(Station.area.is_not(None)))}),
-        "movies": sorted({m for m in session.scalars(select(Movie.title))}),
+        "cities": cities,
+        "areas": [{"id": a["id"], "name": a["name"], "city": c["name"]} for c in cities for a in c["areas"]],
+        "origins": [{"id": o["id"], "name": o["name"], "city": c["name"]} for c in cities for o in c["origins"]],
+        "movies": sorted(set(session.scalars(select(Movie.title)))),
         "options": {
             "screen_types": list(SCREEN.options),
             "audio": list(AUDIO.options),
             "cuisines": list(CUISINE.options),
+            "genres": list(GENRES),
+            "diets": list(DIETS),
             "meal_minutes": MEAL_MINUTES,
+        },
+        "counts": {
+            "cinemas": session.scalar(select(func.count()).select_from(Cinema)),
+            "restaurants": session.scalar(select(func.count()).select_from(Restaurant)),
         },
         "jev": {"mode": settings.jev_mode, "threshold": settings.jev_confidence_threshold},
         "llm": {"model": settings.ollama_model},

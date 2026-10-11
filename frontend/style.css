@@ -134,6 +134,9 @@ select:focus, button:focus-visible { outline: 2px solid var(--accent); outline-o
 }
 .plan h3 { font-size: 19px; margin-top: 8px; }
 .plan .sub { margin: 4px 0 0; color: var(--muted); font-size: 14px; }
+.plan .jev-line { margin: 6px 0 0; font-size: 13px; color: var(--accent); }
+.opt-prob { margin-left: 6px; font-size: 12px; color: var(--muted); font-weight: 400; }
+.jev h4 { margin: 12px 0 0; font-size: 13px; color: var(--muted); font-weight: 700; }
 
 .facts { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 0; }
 .facts div { background: var(--surface-2); border-radius: 10px; padding: 8px 10px; }

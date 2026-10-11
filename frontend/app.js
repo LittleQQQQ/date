@@ -56,30 +56,87 @@ function options(list) {
   return list.map(([value, label]) => `<option value="${esc(value)}">${esc(label)}</option>`).join("");
 }
 
+function stationLabel(name) {
+  return name.endsWith("站") ? name : `${name}站`;
+}
+
+function cityOptions(hasData) {
+  // 全台 22 縣市依地區分組；沒有資料的縣市可以看到但不能選
+  const groups = new Map();
+  for (const city of state.meta.cities) {
+    if (!groups.has(city.region)) groups.set(city.region, []);
+    const ok = hasData(city);
+    groups.get(city.region).push(
+      `<option value="${esc(city.name)}"${ok ? "" : " disabled"}>${esc(city.name)}${ok ? "" : "（尚無資料）"}</option>`,
+    );
+  }
+  return [...groups].map(([region, opts]) => `<optgroup label="${esc(region)}">${opts.join("")}</optgroup>`).join("");
+}
+
+function findCity(name) {
+  return state.meta.cities.find((c) => c.name === name);
+}
+
+function selectedArea() {
+  const form = $("#plan-form");
+  return findCity(form.city.value)?.areas.find((a) => a.id === form.area.value);
+}
+
+function refill(select, list, fallback = "") {
+  // 換選項時，原本選的值還在就保留
+  const current = select.value;
+  select.innerHTML = options(list);
+  const values = list.map(([value]) => String(value));
+  select.value = values.includes(current) ? current : values.includes(fallback) ? fallback : values[0] ?? "";
+}
+
 function setupForm(meta) {
   const form = $("#plan-form");
-  form.area.innerHTML = options(meta.areas.map((a) => [a, a]));
-  form.date.innerHTML = options(meta.dates.map((d) => [d.date, d.label]));
-  form.origin.innerHTML = options(meta.origins.map((o) => [o.name, `${o.name}站`]));
+  form.city.innerHTML = cityOptions((c) => c.areas.length > 0);
+  form.origin_city.innerHTML = cityOptions((c) => c.origins.length > 0);
   form.depart_after.innerHTML = options(DEPART_TIMES.map((m) => [hhmm(m), clockLabel(m)]));
   form.home_by.innerHTML = options(HOME_TIMES.map((m) => [hhmm(m), clockLabel(m)]));
   form.screen_type.innerHTML = options([["", "不限"], ...meta.options.screen_types.map((s) => [s, s])]);
   form.audio.innerHTML = options([["", "不限"], ...meta.options.audio.map((a) => [a, a])]);
   form.cuisine.innerHTML = options([["", "不限"], ...meta.options.cuisines.map((c) => [c, c])]);
+  form.genre.innerHTML = options([["", "不限"], ...meta.options.genres.map((g) => [g, g])]);
+  form.diet.innerHTML = options([["", "沒有"], ...meta.options.diets.map((d) => [d, d])]);
   form.budget_per_person.innerHTML = options(BUDGETS.map((b) => [b, b ? `${b.toLocaleString()} 元以內` : "不限"]));
   form.max_walk_min.innerHTML = options(WALK_LIMITS.map((w) => [w, `${w} 分鐘以內`]));
   for (const [name, value] of Object.entries(DEFAULTS)) form[name].value = value;
+
+  const firstCity = meta.cities.find((c) => c.areas.length > 0);
+  form.city.value = firstCity ? firstCity.name : "";
+  onCityChange();
+}
+
+function onCityChange() {
+  // 換約會縣市時，出發縣市也先跟著換（有出發站的話）；要跨縣市再自己改
+  const form = $("#plan-form");
+  const city = findCity(form.city.value);
+  refill(form.area, (city?.areas ?? []).map((a) => [a.id, a.name]));
+  if (city && city.origins.length) form.origin_city.value = city.name;
+  updateOrigins();
+  updateDates();
+}
+
+function updateOrigins() {
+  const form = $("#plan-form");
+  const city = findCity(form.origin_city.value);
+  refill(form.origin, (city?.origins ?? []).map((o) => [o.id, stationLabel(o.name)]));
+}
+
+function updateDates() {
+  const form = $("#plan-form");
+  refill(form.date, (selectedArea()?.dates ?? []).map((d) => [d.date, d.label]));
   updateMovies();
 }
 
 function updateMovies() {
-  // 片單跟著日期變：只列出那天有上映的電影，原本選的片還在就保留
+  // 片單跟著商圈和日期變：只列出那天有上映的電影
   const form = $("#plan-form");
-  const day = state.meta.dates.find((d) => d.date === form.date.value);
-  const current = form.movie_query.value;
-  const movies = day ? day.movies : [];
-  form.movie_query.innerHTML = options([["", "不限"], ...movies.map((t) => [t, t])]);
-  form.movie_query.value = movies.includes(current) ? current : "";
+  const day = selectedArea()?.dates.find((d) => d.date === form.date.value);
+  refill(form.movie_query, [["", "交給 Jev 決定"], ...(day ? day.movies : []).map((t) => [t, t])]);
 }
 
 function readForm() {
@@ -91,6 +148,8 @@ function readForm() {
     depart_after: form.depart_after.value,
     home_by: form.home_by.value,
     movie_query: form.movie_query.value,
+    genre: form.genre.value,
+    diet: form.diet.value,
     screen_types: form.screen_type.value ? [form.screen_type.value] : [],
     audio: form.audio.value,
     cuisines: form.cuisine.value ? [form.cuisine.value] : [],
@@ -102,7 +161,9 @@ function readForm() {
 }
 
 function validate(req) {
-  if (!req.date) return "目前沒有可以選的場次日期";
+  if (!req.area) return "請選一個有資料的縣市和商圈";
+  if (!req.origin) return "請選出發站";
+  if (!req.date) return "這個商圈目前沒有可以選的場次日期";
   if (toMinutes(req.home_by) <= toMinutes(req.depart_after)) return "最晚到家時間要晚於最早出門時間";
   return "";
 }
@@ -123,41 +184,70 @@ function renderStatus(meta, llm) {
     `<li class="chip">${data}</li>`,
   ].join("");
   const updated = meta.data.sources.map((s) => `${esc(s.source)} 更新於 ${esc(s.finished_at)}`).join("；");
-  $("#foot").innerHTML = `${updated ? `${updated}。` : ""}場次、餐廳與捷運資料目前為示意資料，僅供展示流程。`;
+  const counts = `目前有 ${meta.areas.length} 個商圈、${meta.counts.cinemas} 家影城、${meta.counts.restaurants} 家餐廳的資料。`;
+  $("#foot").innerHTML = `${counts}${updated ? `${updated}。` : ""}影城、餐廳、場次與交通班次目前為示意資料，僅供展示流程。`;
 }
 
 // ---------- 結果 ----------
 
 function renderSummary(result, summary, source) {
-  const by = source === "llm" ? "由本機 LLM 撰寫，時間與金額都來自排程計算" : "系統自動產生";
+  const by = source === "llm" ? "時間與金額來自排程計算；最後的推薦理由由本機 LLM 撰寫" : "系統自動產生";
   const text = summary || (result.plans.length
-    ? `在 ${result.stats.feasible} 個接得起來的組合裡挑了 ${result.plans.length} 個方案。`
+    ? `從 ${result.stats.feasible} 個接得起來的組合裡，Jev 選出 ${result.plans.length} 個方案。${(result.notes || []).join("")}`
     : "找不到接得起來的行程，看看下面的原因，或放寬條件再試一次。");
   return `<section class="card summary"><p>${esc(text)}</p><p class="by">${by}</p></section>`;
 }
 
-function renderConfirmations(items) {
-  if (!items.length) return "";
-  const rows = items.map((item) => `
-    <div class="confirm-item">
-      <p>${esc(item.question)}<small>Jev 猜「${esc(item.jev_guess)}」，信心 ${Math.round(item.confidence * 100)}%</small></p>
-      <div class="opts">
-        ${item.options.map((opt) => `
-          <button type="button" class="opt${opt === item.jev_guess ? " guess" : ""}"
-            data-key="${esc(item.key)}" data-value="${esc(opt)}">${esc(opt)}</button>`).join("")}
-      </div>
-    </div>`);
+function confirmItem(item) {
+  const pct = (p) => `${Math.round(p * 100)}%`;
+  const buttons = item.options.map((opt, i) => {
+    const prob = item.kind === "choice" ? `<small class="opt-prob">${pct(item.probs[i])}</small>` : "";
+    return `<button type="button" class="opt${opt === item.jev_guess ? " guess" : ""}"
+      data-key="${esc(item.key)}" data-value="${esc(opt)}">${esc(opt)}${prob}</button>`;
+  });
   return `
-    <section class="card confirm">
-      <h2>Jev 不太確定，幫忙確認一下</h2>
-      <p class="hint">信心低於門檻的判斷不會自己做決定。選完會重新排程。</p>
-      ${rows.join("")}
-    </section>`;
+    <div class="confirm-item">
+      <p>${esc(item.question)}<small>Jev 猜「${esc(item.jev_guess)}」，信心 ${pct(item.confidence)}</small></p>
+      <div class="opts">${buttons.join("")}</div>
+    </div>`;
 }
 
-function renderJev(list) {
+function renderConfirmations(items) {
+  const filters = items.filter((i) => i.kind !== "choice");
+  const choices = items.filter((i) => i.kind === "choice");
+  let html = "";
+  if (filters.length) {
+    html += `
+      <section class="card confirm">
+        <h2>Jev 不太確定，幫忙確認一下</h2>
+        <p class="hint">這些判斷 Jev 沒把握，所以相關的場次或餐廳先不排。選完會重新排程。</p>
+        ${filters.map(confirmItem).join("")}
+      </section>`;
+  }
+  if (choices.length) {
+    html += `
+      <section class="card confirm">
+        <h2>Jev 的選擇沒有很肯定，想換換看嗎？</h2>
+        <p class="hint">下面的方案已經照 Jev 的選擇排好；點其他選項會改用你選的重新排。</p>
+        ${choices.map(confirmItem).join("")}
+      </section>`;
+  }
+  return html;
+}
+
+function choiceRow(label, c) {
+  const pct = Math.round(c.prob * 100);
+  const who = c.source === "user" ? "（你指定或確認的）" : c.source === "program" ? "（只有這個選項排得進去）" : `（Jev 第 ${c.rank} 名）`;
+  return `
+    <li>
+      <span class="q">${esc(label)}</span>
+      <span class="row"><strong>${esc(c.choice)}${who}</strong><span class="bar"><i style="width:${pct}%"></i></span><span>${pct}%</span></span>
+    </li>`;
+}
+
+function renderJev(p) {
   const threshold = state.meta?.jev.threshold ?? 0.6;
-  const items = list.map((a) => {
+  const attributes = p.jev.map((a) => {
     const pct = Math.round(a.confidence * 100);
     const who = a.overridden ? "（你確認的）" : "";
     return `
@@ -166,7 +256,13 @@ function renderJev(list) {
         <span class="row"><strong>${esc(a.top)}${who}</strong><span class="bar"><i style="width:${pct}%"></i></span><span>${pct}%</span></span>
       </li>`;
   });
-  return `<details class="jev"><summary>Jev 怎麼判斷的</summary><ul>${items.join("")}</ul></details>`;
+  return `
+    <details class="jev"><summary>Jev 怎麼選、怎麼判斷的</summary>
+      <h4>Jev 的選擇</h4>
+      <ul>${choiceRow("看哪部片", p.jev_choice.movie)}${choiceRow("吃哪一家", p.jev_choice.restaurant)}</ul>
+      <h4>屬性判斷（用來篩選與估算時間）</h4>
+      <ul>${attributes.join("")}</ul>
+    </details>`;
 }
 
 function renderPlan(p) {
@@ -182,9 +278,11 @@ function renderPlan(p) {
   return `
     <article class="card plan">
       <header>
-        <span class="pill">${esc(p.label)}</span>
+        ${p.labels.map((l) => `<span class="pill">${esc(l)}</span>`).join(" ")}
         <h3>${esc(m.start)}《${esc(m.title)}》→ ${esc(r.name)}</h3>
-        <p class="sub">${esc(m.cinema)}・${esc(m.label)}・${esc(p.order_text)}</p>
+        <p class="sub">${esc(m.genre ? `${m.genre}片・` : "")}${esc(m.cinema)}・${esc(m.label)}・${esc(p.order_text)}</p>
+        <p class="jev-line">Jev 選片 ${Math.round(p.jev_choice.movie.prob * 100)}% × 選餐廳 ${Math.round(p.jev_choice.restaurant.prob * 100)}%
+          ＝ 組合信心 ${Math.round(p.jev_confidence * 100)}%</p>
       </header>
       <dl class="facts">
         <div><dt>出門</dt><dd>${esc(p.leave_home)}</dd></div>
@@ -195,7 +293,7 @@ function renderPlan(p) {
       ${flags}
       <ol class="timeline">${steps}</ol>
       ${tips}
-      ${renderJev(p.jev)}
+      ${renderJev(p)}
     </article>`;
 }
 
@@ -276,6 +374,9 @@ async function init() {
   api("/api/status").then((s) => renderStatus(state.meta, s.llm)).catch(() => renderStatus(state.meta, { available: false }));
 
   const form = $("#plan-form");
+  form.city.addEventListener("change", onCityChange);
+  form.area.addEventListener("change", updateDates);
+  form.origin_city.addEventListener("change", updateOrigins);
   form.date.addEventListener("change", updateMovies);
   // 確認過的 Jev 答案綁在場次標示或餐廳上，跟條件無關，所以改條件時保留
   form.addEventListener("change", () => { $("#form-error").hidden = true; });

@@ -64,7 +64,7 @@ async def status() -> dict:
 CUISINE_HINTS = {
     "日式": ("日式", "日本料理", "拉麵", "壽司", "丼"),
     "韓式": ("韓式", "韓國", "炸雞"),
-    "中式": ("中式", "中餐", "點心", "小籠包", "熱炒"),
+    "中式／台式": ("中式", "中餐", "台式", "台菜", "小吃", "點心", "小籠包", "熱炒"),
     "義式／西式": ("義式", "義大利", "西式", "西餐", "牛排", "燉飯"),
     "美式": ("美式", "漢堡"),
     "泰式／南洋": ("泰式", "泰國", "南洋", "越南"),
@@ -72,20 +72,41 @@ CUISINE_HINTS = {
     "咖啡／甜點": ("咖啡", "甜點", "下午茶"),
     "酒館": ("酒館", "酒吧", "調酒", "喝一杯", "小酌"),
 }
+GENRE_HINTS = {
+    "動作": ("動作",), "愛情": ("愛情", "浪漫的片"), "科幻": ("科幻",), "動畫": ("動畫", "卡通"),
+    "喜劇": ("喜劇", "搞笑"), "劇情": ("劇情片",), "恐怖": ("恐怖", "驚悚"),
+}
+DIET_HINTS = {"不吃辣": ("不吃辣", "不能吃辣", "怕辣"), "素食": ("素食", "吃素", "蔬食"), "不吃牛": ("不吃牛",)}
 _BUDGET = re.compile(r"(?:預算|每人|一人|一個人)[^0-9]{0,4}(\d{3,5})")
 _QUOTED_TITLE = re.compile(r"《(.+?)》|「(.+?)」")
 _ORIGIN_ALIASES = {"北車": "台北車站"}
 
 
 def _match_origin(text: str, meta: dict) -> str | None:
+    """回傳出發站代碼。站名重複（例如台北、台中都有市政府）時，看句子裡有沒有提到縣市。"""
     text = text.replace("臺", "台")
     for alias, name in _ORIGIN_ALIASES.items():
-        if alias in text:
-            return name
-    for name in sorted((o["name"] for o in meta["origins"]), key=len, reverse=True):
-        if name in text:
-            return name
+        text = text.replace(alias, name)
+    for origin in sorted(meta["origins"], key=lambda o: len(o["name"]), reverse=True):
+        if origin["name"] not in text:
+            continue
+        same_name = [o for o in meta["origins"] if o["name"] == origin["name"]]
+        if len(same_name) == 1:
+            return origin["id"]
+        for o in same_name:
+            if o["city"] in text or o["city"].removesuffix("市") in text:
+                return o["id"]
     return None
+
+
+def _match_area(text: str, meta: dict, origin_id: str | None) -> str | None:
+    """回傳商圈代碼。「從板橋出發去信義」同時提到兩個商圈時，排除出發站所在的那個。"""
+    text = text.replace("臺", "台")
+    hits = [a for a in meta["areas"] if a["name"] in text]
+    if len(hits) > 1 and origin_id:
+        origin_name = next((o["name"] for o in meta["origins"] if o["id"] == origin_id), "")
+        hits = [a for a in hits if a["name"] != origin_name] or hits
+    return max(hits, key=lambda a: len(a["name"]))["id"] if hits else None
 
 
 def _match_movie(text: str, meta: dict) -> str | None:
@@ -119,6 +140,8 @@ def rule_parse(text: str, today: dt.date, meta: dict) -> dict:
         out["date"] = d.isoformat()
     if origin := _match_origin(text, meta):
         out["origin"] = origin
+    if area := _match_area(text, meta, out.get("origin")):
+        out["area"] = area
     if movie := _match_movie(text, meta):
         out["movie_query"] = movie
     out.update(_find_times(text))
@@ -130,6 +153,10 @@ def rule_parse(text: str, today: dt.date, meta: dict) -> dict:
         out["audio"] = "原音"
     if cuisines := [c for c, words in CUISINE_HINTS.items() if any(w in text for w in words)]:
         out["cuisines"] = cuisines
+    if genre := next((g for g, words in GENRE_HINTS.items() if any(w in text for w in words)), None):
+        out["genre"] = genre
+    if diet := next((d for d, words in DIET_HINTS.items() if any(w in text for w in words)), None):
+        out["diet"] = diet
     if m := _BUDGET.search(text):
         out["budget_per_person"] = int(m.group(1))
     if any(w in text for w in ("先吃", "吃完再看", "吃飽再看", "吃飯再看")):
@@ -211,7 +238,7 @@ def _from_llm(raw: dict, today: dt.date, meta: dict) -> dict:
     return out
 
 
-RULES_FIRST = ("date", "origin", "movie_query")
+RULES_FIRST = ("date", "origin", "area", "movie_query")
 LIST_FIELDS = ("screen_types", "cuisines")
 
 
@@ -274,56 +301,65 @@ def template_summary(result: dict) -> str:
     m, r = best["movie"], best["restaurant"]
     feasible = result.get("stats", {}).get("feasible", len(plans))
     return (
-        f"在 {feasible} 個接得起來的組合裡挑了 {len(plans)} 個方案。"
-        f"最推薦：{m['start']} 在{m['cinema']}看《{m['title']}》（{m['label']}），{best['order_text']}，"
+        f"從 {feasible} 個接得起來的組合裡，Jev 選出 {len(plans)} 個方案。"
+        + "".join(result.get("notes") or [])
+        + f"Jev 首選：{m['start']} 在{m['cinema']}看《{m['title']}》（{m['label']}），{best['order_text']}，"
         f"到{r['name']}用餐，{best['leave_home']} 出門、{best['arrive_home']} 到家，每人約 {best['cost_per_person']} 元。"
     )
 
 
-_NUMBER = re.compile(r"\d+(?::\d{2})?")
+# 阿拉伯數字，或「四點」「八百八十元」「兩小時」這種中文數字寫法；
+# 「十分適合」「輕鬆一點」「一個人」是一般用語，不算
+_NUMBER_LIKE = re.compile(
+    r"\d"
+    r"|(?:[二兩三四五六七八九十]|[一二兩三四五六七八九十]{2,})點"
+    r"|[零一二兩三四五六七八九十百千]+(?:元|塊錢)"
+    r"|[一二兩三四五六七八九十半]+個?(?:小時|鐘頭)"
+)
 
 
-def _invented_numbers(text: str, facts: str) -> set[str]:
-    """摘要裡出現、但程式沒提供的數字或時間。小模型偶爾會自己編，例如「約需 34 分鐘」。"""
-    allowed = set(_NUMBER.findall(facts.replace(",", "")))
-    return set(_NUMBER.findall(text.replace(",", ""))) - allowed
+def has_numbers(text: str) -> bool:
+    """推薦理由裡不能有任何數字。小模型轉述時間、金額常常出錯，例如把 14:21 寫成「下午四點」。"""
+    return bool(_NUMBER_LIKE.search(text))
 
 
 async def summarize(result: dict) -> tuple[str, str]:
-    """回傳（摘要文字, 來源 llm / template）。LLM 摘要裡有程式沒提供的數字，就改用範本。"""
+    """回傳（摘要文字, 來源 llm / template）。
+
+    時間、金額、店名一律由程式用範本寫；LLM 只補一兩句沒有數字的推薦理由，有數字就整句不用。
+    """
     plans = result.get("plans") or []
-    fallback = template_summary(result)
+    facts_summary = template_summary(result)
     if not plans:
-        return fallback, "template"
+        return facts_summary, "template"
     facts = []
     for p in plans:
         m, r = p["movie"], p["restaurant"]
-        line = (
-            f"{p['label']}：{p['order_text']}；{m['start']} 在{m['cinema']}看《{m['title']}》（{m['label']}）；"
-            f"餐廳 {r['name']}（{r['cuisine']}，約會適合度：{r['date_fit']}）；"
-            f"{p['leave_home']} 出門、{p['arrive_home']} 到家；每人約 {p['cost_per_person']} 元"
-        )
+        movie = f"在{m['cinema']}看《{m['title']}》（{m['label']}）"
+        meal = f"到{r['name']}吃飯（{r['cuisine']}，約會適合度：{r['date_fit']}）"
+        middle = f"{movie}，看完再{meal}" if p["order"] == "movie_first" else f"先{meal}，再{movie}"
+        line = f"{p['label']}：{middle}"
         if p["flags"]:
             line += "；注意：" + "、".join(p["flags"])
         facts.append(line)
-    facts_text = "\n".join(facts)
     try:
-        text = await _ollama_chat(
+        reason = await _ollama_chat(
             [
                 {
                     "role": "system",
                     "content": (
-                        "你是約會行程助理。請用繁體中文（台灣用語）寫 3 到 4 句話，向使用者介紹下面的方案並說明推薦理由。"
-                        "只能使用提供的店名、時間和金額，不可以編造任何新的數字、時間或店家。不要用條列，不要用 Markdown。"
+                        "你是約會行程助理。請用繁體中文（台灣用語）寫一到兩句推薦理由："
+                        "說明「Jev 首選」的方案為什麼適合約會，以及其他方案適合什麼樣的情況。"
+                        "絕對不要寫任何時間、金額或數字，也不要提到下面沒有的店家。不要用條列，不要用 Markdown。"
                     ),
                 },
-                {"role": "user", "content": facts_text},
+                {"role": "user", "content": "\n".join(facts)},
             ],
             temperature=0.3,
         )
     except LLMUnavailable:
-        return fallback, "template"
-    text = text.strip()
-    if not text or _invented_numbers(text, facts_text):
-        return fallback, "template"
-    return text, "llm"
+        return facts_summary, "template"
+    reason = reason.strip()
+    if not reason or has_numbers(reason):
+        return facts_summary, "template"
+    return f"{facts_summary}{reason}", "llm"

@@ -5,7 +5,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from .jev.questions import AUDIO, CUISINE, SCREEN
+from .jev.questions import AUDIO, CUISINE, DIETS, GENRES, SCREEN
 from .timeutil import hhmm, to_min
 
 
@@ -13,11 +13,13 @@ class PlanRequest(BaseModel):
     """排程條件。字串留空、數字填 0 代表「不限」。"""
 
     date: dt.date
-    origin: str = Field("板橋", description="出發的捷運站名或代碼")
-    area: str = Field("信義", description="約會的商圈")
+    origin: str = Field("板橋", description="出發站的代碼或站名（站名重複時要用代碼，例如 txg-cityhall）")
+    area: str = Field("台北市/信義", description="約會的商圈代碼：縣市/商圈")
     depart_after: str = Field("16:00", description="最早幾點可以出門（HH:MM）")
     home_by: str = Field("23:00", description="最晚幾點要回到出發站（HH:MM，跨午夜可寫 00:30 或 24:30）")
-    movie_query: str = Field("", description="想看的片名，空字串代表不限")
+    movie_query: str = Field("", description="指定要看的片名；空字串代表交給 Jev 決定")
+    genre: str = Field("", description=f"想看的片型（Jev 選片時參考）：{'、'.join(GENRES)}，空字串代表不限")
+    diet: str = Field("", description=f"飲食限制：{'、'.join(DIETS)}，空字串代表沒有")
     screen_types: list[str] = Field(default_factory=list, description=f"想看的影廳：{'、'.join(SCREEN.options)}")
     audio: str = Field("", description=f"語言：{'、'.join(AUDIO.options)}，空字串代表不限")
     cuisines: list[str] = Field(default_factory=list, description=f"想吃的料理：{'、'.join(CUISINE.options)}")
@@ -52,6 +54,20 @@ class PlanRequest(BaseModel):
     def _check_audio(cls, value: str) -> str:
         if value and value not in AUDIO.options:
             raise ValueError(f"語言只能是：{'、'.join(AUDIO.options)}")
+        return value
+
+    @field_validator("genre")
+    @classmethod
+    def _check_genre(cls, value: str) -> str:
+        if value and value not in GENRES:
+            raise ValueError(f"片型只能是：{'、'.join(GENRES)}")
+        return value
+
+    @field_validator("diet")
+    @classmethod
+    def _check_diet(cls, value: str) -> str:
+        if value and value not in DIETS:
+            raise ValueError(f"飲食限制只能是：{'、'.join(DIETS)}")
         return value
 
     @model_validator(mode="after")

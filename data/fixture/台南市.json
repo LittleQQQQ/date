@@ -1,0 +1,69 @@
+{
+  "_note": "示意資料：影城、餐廳、場次皆為虛構；台鐵、公車車程與班次為估計值。",
+  "areas": [
+    {"id": "台南市/中西區", "city": "台南市", "name": "中西區"}
+  ],
+  "stations": [
+    {"id": "tnn-main", "name": "台南車站", "city": "台南市", "lat": 22.9971, "lng": 120.2126, "transfer_min": 5, "is_origin": true, "area_id": "台南市/中西區"},
+    {"id": "tnn-yongkang", "name": "永康", "city": "台南市", "lat": 23.0383, "lng": 120.2533, "is_origin": true},
+    {"id": "tnn-hsr", "name": "高鐵台南", "city": "台南市", "lat": 22.9251, "lng": 120.2858, "transfer_min": 8, "is_origin": true},
+    {"id": "tnn-ximen", "name": "西門圓環", "city": "台南市", "lat": 22.9936, "lng": 120.1966, "area_id": "台南市/中西區"}
+  ],
+  "transit_links": [
+    {"from": "tnn-yongkang", "to": "tnn-main", "mode": "台鐵", "line": "台鐵縱貫線", "ride": 8, "headway": 15, "first": "05:30", "last": "24:00", "both_ways": true},
+    {"from": "tnn-main", "to": "tnn-hsr", "mode": "台鐵", "line": "台鐵沙崙線", "ride": 25, "headway": 30, "first": "06:00", "last": "23:00", "both_ways": true},
+    {"from": "tnn-main", "to": "tnn-ximen", "mode": "公車", "line": "公車（台南車站—西門圓環）", "ride": 10, "headway": 15, "first": "06:00", "last": "22:30", "both_ways": true},
+    {"from": "tnn-hsr", "to": "tnn-ximen", "mode": "公車", "line": "公車（高鐵台南—西門圓環）", "ride": 40, "headway": 30, "first": "06:30", "last": "22:00", "both_ways": true}
+  ],
+  "cinemas": [
+    {"external_id": "TNN-ZX-C1", "name": "府城影城 新天地", "area_id": "台南市/中西區", "lat": 22.9888, "lng": 120.1985},
+    {"external_id": "TNN-ZX-C2", "name": "赤崁影城", "area_id": "台南市/中西區", "lat": 22.9975, "lng": 120.2035}
+  ],
+  "showtime_templates": [
+    {"cinema": "TNN-ZX-C1", "movie": "M1", "label": "數位 英語", "price": 270, "times": ["16:20", "19:00", "21:30"]},
+    {"cinema": "TNN-ZX-C1", "movie": "M1", "label": "TITAN 巨幕 英語", "price": 350, "times": ["18:00"]},
+    {"cinema": "TNN-ZX-C1", "movie": "M2", "label": "數位 英語", "price": 260, "times": ["17:30", "20:10"]},
+    {"cinema": "TNN-ZX-C2", "movie": "M3", "label": "數位 英語", "price": 260, "times": ["17:00", "20:00"]},
+    {"cinema": "TNN-ZX-C2", "movie": "M2", "label": "數位", "price": 250, "times": ["18:20"]},
+    {"cinema": "TNN-ZX-C2", "movie": "M4", "label": "數位 英語", "price": 250, "times": ["19:30"]},
+    {"cinema": "TNN-ZX-C2", "movie": "M6", "label": "數位", "price": 250, "times": ["16:40", "19:10"]}
+  ],
+  "restaurants": [
+    {
+      "external_id": "TNN-ZX-R01", "name": "老宅餐酒館", "area_id": "台南市/中西區", "lat": 22.9920, "lng": 120.2000,
+      "description": "百年老宅改建的餐酒館，燈光昏黃，氣氛浪漫。",
+      "reviews": ["很適合約會", "調酒有台南特色", "要訂位"],
+      "price_per_person": 1000, "hours": {"default": ["17:30", "23:30"]}, "last_order_min": 60, "typical_wait_min": 0, "reservable": true
+    },
+    {
+      "external_id": "TNN-ZX-R02", "name": "清晨牛肉湯", "area_id": "台南市/中西區", "lat": 22.9940, "lng": 120.2010,
+      "description": "台南牛肉湯，凌晨就開，平價，排隊人潮多。",
+      "reviews": ["湯頭鮮甜", "排隊要等", "店內擁擠"],
+      "price_per_person": 150, "hours": {"default": ["05:00", "14:00"]}, "last_order_min": 15, "typical_wait_min": 15, "reservable": false
+    },
+    {
+      "external_id": "TNN-ZX-R03", "name": "海港熱炒", "area_id": "台南市/中西區", "lat": 22.9905, "lng": 120.1970,
+      "description": "台式海鮮熱炒，適合聚會，用餐熱鬧有點吵。",
+      "reviews": ["海鮮新鮮", "價格實在", "很適合一群人"],
+      "price_per_person": 500, "hours": {"default": ["17:00", "25:00"]}, "last_order_min": 60, "typical_wait_min": 15, "reservable": true
+    },
+    {
+      "external_id": "TNN-ZX-R04", "name": "老街咖啡", "area_id": "台南市/中西區", "lat": 22.9973, "lng": 120.1960,
+      "description": "老街咖啡館，安靜小巧，甜點有名，也有蔬食簡餐。",
+      "reviews": ["街景很有氣氛", "甜點好吃", "座位不多"],
+      "price_per_person": 280, "hours": {"default": ["12:00", "22:00"]}, "last_order_min": 30, "typical_wait_min": 15, "reservable": false
+    },
+    {
+      "external_id": "TNN-ZX-R05", "name": "府城鍋燒", "area_id": "台南市/中西區", "lat": 22.9930, "lng": 120.2040,
+      "description": "鍋燒意麵與台式小吃，簡單快速，可以外帶。",
+      "reviews": ["便宜", "很快就上菜", "適合當宵夜"],
+      "price_per_person": 120, "hours": {"default": ["11:00", "22:30"]}, "last_order_min": 30, "typical_wait_min": 5, "reservable": false
+    },
+    {
+      "external_id": "TNN-ZX-R06", "name": "暖燈居酒屋", "area_id": "台南市/中西區", "lat": 22.9895, "lng": 120.2015,
+      "description": "日式居酒屋，串燒與清酒，燈光溫暖，適合兩人。",
+      "reviews": ["串燒好吃", "氣氛輕鬆", "建議訂位"],
+      "price_per_person": 700, "hours": {"default": ["17:30", "24:00"]}, "last_order_min": 60, "typical_wait_min": 10, "reservable": true
+    }
+  ]
+}

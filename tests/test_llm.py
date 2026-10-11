@@ -1,11 +1,13 @@
-from app.llm import _invented_numbers
-
-FACTS = "最推薦：先吃飯再看電影；17:40 在河岸影城 101 看《午後的貓》；20:00 到家；每人約 720 元"
+from app.llm import has_numbers
 
 
-def test_summary_using_given_numbers_is_accepted():
-    assert not _invented_numbers("17:40 在河岸影城 101 看電影，每人 720 元，20:00 就能到家。", FACTS)
+def test_reason_without_numbers_is_accepted():
+    assert not has_numbers("深夜酒吧燈光昏暗、適合兩人小酌；想省錢可以選湖景咖啡。")
+    assert not has_numbers("十分適合約會，想輕鬆一點可以選一個安靜的咖啡廳。")
 
 
-def test_summary_with_invented_numbers_is_rejected():
-    assert _invented_numbers("走到影城約需 34 分鐘，每人 720 元。", FACTS) == {"34"}
+def test_reason_with_numbers_is_rejected():
+    assert has_numbers("走到影城約需 34 分鐘。")
+    assert has_numbers("下午四點二十一分出門。")  # 小模型把 14:21 寫錯成中文數字
+    assert has_numbers("每人約八百八十元。")
+    assert has_numbers("大約兩小時就能吃完。")

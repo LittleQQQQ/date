@@ -1,0 +1,66 @@
+{
+  "_note": "示意資料：影城、餐廳、場次皆為虛構；捷運、台鐵車程與班次為估計值。",
+  "areas": [
+    {"id": "新北市/板橋", "city": "新北市", "name": "板橋"}
+  ],
+  "stations": [
+    {"id": "ntp-banqiao", "name": "板橋", "city": "新北市", "lat": 25.0141, "lng": 121.4637, "transfer_min": 6, "is_origin": true, "area_id": "新北市/板橋"},
+    {"id": "ntp-fuzhong", "name": "府中", "city": "新北市", "lat": 25.0085, "lng": 121.4594, "is_origin": true, "area_id": "新北市/板橋"}
+  ],
+  "transit_links": [
+    {"from": "ntp-fuzhong", "to": "ntp-banqiao", "mode": "捷運", "line": "板南線", "ride": 2, "headway": 6, "first": "06:00", "last": "24:00", "both_ways": true},
+    {"from": "ntp-banqiao", "to": "tpe-ximen", "mode": "捷運", "line": "板南線", "ride": 10, "headway": 6, "first": "06:00", "last": "24:00", "both_ways": true},
+    {"from": "ntp-banqiao", "to": "tyn-taoyuan", "mode": "台鐵", "line": "台鐵縱貫線", "ride": 25, "headway": 15, "first": "05:30", "last": "23:50", "both_ways": true}
+  ],
+  "cinemas": [
+    {"external_id": "NTP-BQ-C1", "name": "新板影城", "area_id": "新北市/板橋", "lat": 25.0128, "lng": 121.4652},
+    {"external_id": "NTP-BQ-C2", "name": "府中影城", "area_id": "新北市/板橋", "lat": 25.0090, "lng": 121.4605}
+  ],
+  "showtime_templates": [
+    {"cinema": "NTP-BQ-C1", "movie": "M1", "label": "IMAX 2D 英語", "price": 400, "times": ["16:00", "18:40", "21:20"]},
+    {"cinema": "NTP-BQ-C1", "movie": "M2", "label": "數位 英語", "price": 290, "times": ["17:30", "20:00"]},
+    {"cinema": "NTP-BQ-C1", "movie": "M3", "label": "數位 英語", "price": 300, "times": ["19:10"]},
+    {"cinema": "NTP-BQ-C2", "movie": "M1", "label": "數位 國語配音", "price": 270, "times": ["17:10", "19:50"]},
+    {"cinema": "NTP-BQ-C2", "movie": "M2", "label": "數位", "price": 270, "times": ["18:00"]},
+    {"cinema": "NTP-BQ-C2", "movie": "M4", "label": "數位 英語", "price": 270, "times": ["16:40", "20:40"]},
+    {"cinema": "NTP-BQ-C2", "movie": "M5", "label": "數位 國語配音", "price": 260, "times": ["16:20", "18:30"]}
+  ],
+  "restaurants": [
+    {
+      "external_id": "NTP-BQ-R01", "name": "新板夜景餐廳", "area_id": "新北市/板橋", "lat": 25.0133, "lng": 121.4646,
+      "description": "高樓西式餐廳，窗邊看夜景，排餐套餐，氣氛浪漫。",
+      "reviews": ["約會首選", "價格偏高", "要提早訂位"],
+      "price_per_person": 1500, "hours": {"default": ["17:30", "22:30"]}, "last_order_min": 60, "typical_wait_min": 0, "reservable": true
+    },
+    {
+      "external_id": "NTP-BQ-R02", "name": "夜市小吃攤", "area_id": "新北市/板橋", "lat": 25.0158, "lng": 121.4628,
+      "description": "台式小吃攤，夜市裡人潮擁擠，多數人外帶邊走邊吃。",
+      "reviews": ["便宜好吃", "人很多", "沒有座位"],
+      "price_per_person": 150, "hours": {"default": ["17:00", "24:00"]}, "last_order_min": 30, "typical_wait_min": 5, "reservable": false
+    },
+    {
+      "external_id": "NTP-BQ-R03", "name": "府中咖啡館", "area_id": "新北市/板橋", "lat": 25.0088, "lng": 121.4598,
+      "description": "老宅咖啡館，手沖咖啡、甜點和蔬食早午餐，安靜適合聊天。",
+      "reviews": ["很有氣氛", "甜點好吃", "九點打烊"],
+      "price_per_person": 300, "hours": {"default": ["11:00", "21:00"]}, "last_order_min": 30, "typical_wait_min": 10, "reservable": false
+    },
+    {
+      "external_id": "NTP-BQ-R04", "name": "板橋麻辣鍋", "area_id": "新北市/板橋", "lat": 25.0145, "lng": 121.4660,
+      "description": "麻辣鍋吃到飽，營業到深夜，用餐限時 100 分鐘。",
+      "reviews": ["湯頭很香", "很適合慢慢吃", "人多有點吵"],
+      "price_per_person": 600, "hours": {"default": ["11:30", "26:00"]}, "last_order_min": 60, "typical_wait_min": 20, "reservable": true
+    },
+    {
+      "external_id": "NTP-BQ-R05", "name": "和風燒肉", "area_id": "新北市/板橋", "lat": 25.0120, "lng": 121.4640,
+      "description": "燒肉專門店，包廂座位，兩人套餐，店員代烤。",
+      "reviews": ["包廂很有隱私", "肉品新鮮", "建議訂位"],
+      "price_per_person": 1000, "hours": {"default": ["17:00", "24:00"]}, "last_order_min": 60, "typical_wait_min": 10, "reservable": true
+    },
+    {
+      "external_id": "NTP-BQ-R06", "name": "車站漢堡", "area_id": "新北市/板橋", "lat": 25.0150, "lng": 121.4645,
+      "description": "美式漢堡快餐，出餐快，適合趕時間。",
+      "reviews": ["漢堡好吃", "座位少", "可以外帶"],
+      "price_per_person": 250, "hours": {"default": ["10:00", "22:00"]}, "last_order_min": 30, "typical_wait_min": 5, "reservable": false
+    }
+  ]
+}

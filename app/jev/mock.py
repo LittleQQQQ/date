@@ -50,7 +50,7 @@ def meal_pace(context: dict) -> list[float]:
 CUISINE_WORDS = {
     "日式": ("日式", "拉麵", "壽司", "丼", "定食", "居酒屋"),
     "韓式": ("韓式", "炸雞", "部隊鍋", "拌飯", "泡菜"),
-    "中式": ("中式", "點心", "小籠包", "熱炒", "便當", "合菜"),
+    "中式／台式": ("中式", "台式", "點心", "小籠包", "熱炒", "便當", "合菜", "小吃", "牛肉湯", "鍋燒", "麵線"),
     "義式／西式": ("義式", "義大利", "披薩", "燉飯", "西式", "排餐", "牛排", "法式"),
     "美式": ("美式", "漢堡", "薯條"),
     "泰式／南洋": ("泰式", "打拋", "綠咖哩", "越南", "南洋"),
@@ -106,6 +106,58 @@ def title_match(context: dict) -> list[float]:
     return softmax([score, 0.0])  # 是 / 不是
 
 
+SPICY = ("麻辣", "辣", "打拋", "綠咖哩", "酸辣", "部隊鍋")
+VEGETARIAN = ("素食", "蔬食", "吃素")
+MEAT = ("肉", "雞", "牛", "豬", "魚", "海鮮", "蝦", "串燒", "排餐", "燒肉", "漢堡", "海產")
+BEEF = ("牛",)
+
+
+def diet_ok(context: dict) -> list[float]:
+    text = _restaurant_text(context)
+    diet = context["diet"]
+    if diet == "不吃辣":
+        return softmax([1.5 - 2 * _count(text, SPICY), 0.0])  # 可以 / 不行
+    if diet == "素食":
+        if _count(text, VEGETARIAN):
+            return softmax([2.5, 0.0])
+        return softmax([-2.0, 0.0]) if _count(text, MEAT) else softmax([0.3, 0.0])  # 沒提到肉也沒提到素：沒把握
+    if diet == "不吃牛":
+        return softmax([1.5 - 2 * _count(text, BEEF), 0.0])
+    return [0.5, 0.5]
+
+
+# 選擇題的模擬規則：真正的 Jev 會讀 context 的文字自己判斷；模擬版讀程式附上的 _features
+GENRE_APPEAL = {"愛情": 0.6, "喜劇": 0.5, "動畫": 0.4, "劇情": 0.3, "動作": 0.2, "科幻": 0.2, "恐怖": -0.3}
+
+
+def movie_choice(options: tuple[str, ...], context: dict) -> list[float]:
+    wanted = context["_wanted_genre"]
+    scores = []
+    for title in options:
+        f = context["_features"][title]
+        score = GENRE_APPEAL.get(f["genre"], 0.0)
+        if wanted:
+            score += 2.5 if f["genre"] == wanted else -0.5
+        score += 0.3 if f["premium"] else 0.0
+        score += 0.3 * min(f["best_buffer"], 60) / 60
+        score -= 0.6 * sum(1 for w in VARIANT_WORDS if w in title)
+        scores.append(score)
+    return softmax(scores)
+
+
+def restaurant_choice(options: tuple[str, ...], context: dict) -> list[float]:
+    scores = []
+    for name in options:
+        f = context["_features"][name]
+        score = 2.0 * f["date_fit"] + 0.6 * f["date_ok"]
+        score += 0.8 if f["cuisine_match"] else 0.0
+        if f["budget"] and f["cost"] > 0.9 * f["budget"]:
+            score -= 0.6
+        score += 0.4 * min(f["buffer"], 60) / 60 - 0.04 * f["walk"]
+        scores.append(2.5 * score)  # 放大差距，模擬 Jev 對餐廳有比較明確的偏好
+    return softmax(scores)
+
+
 class MockJev:
     name = "mock"
 
@@ -116,7 +168,11 @@ class MockJev:
         SCREEN.key: screen_type,
         AUDIO.key: audio_language,
         TITLE_MATCH.key: title_match,
+        "diet_ok": diet_ok,
     }
+    _CHOICE_RULES = {"movie_choice": movie_choice, "restaurant_choice": restaurant_choice}
 
     def predict(self, question: Question, context: dict, text: str) -> list[float]:
+        if question.key in self._CHOICE_RULES:
+            return self._CHOICE_RULES[question.key](question.options, context)
         return self._RULES[question.key](context)

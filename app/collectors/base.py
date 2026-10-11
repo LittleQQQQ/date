@@ -1,6 +1,6 @@
 """資料來源（collector）介面。
 
-每個資料來源——示意資料、影城場次爬蟲、餐廳爬蟲、TDX 捷運 API——都輸出同一種 Batch，
+每個資料來源——示意資料、影城場次爬蟲、餐廳爬蟲、TDX 交通 API——都輸出同一種 Batch，
 再由 app/ingest.py 寫進資料庫。排程只讀資料庫，所以換資料來源時其他程式都不用改。
 
 新增一個爬蟲的步驟：
@@ -13,34 +13,75 @@ from __future__ import annotations
 import datetime as dt
 from abc import ABC, abstractmethod
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
+from ..regions import CITY_NAMES, area_id
 from ..timeutil import WEEKDAY_KEYS, to_min
+
+TRANSIT_MODES = ("捷運", "台鐵", "高鐵", "輕軌", "公車")
+
+
+def _check_city(value: str) -> str:
+    if value not in CITY_NAMES:
+        raise ValueError(f"不是台灣的縣市名稱：{value}（請用「台」字，例如台北市）")
+    return value
+
+
+class AreaRecord(BaseModel):
+    id: str  # 縣市/商圈，例如「台北市/信義」
+    city: str
+    name: str
+
+    @field_validator("city")
+    @classmethod
+    def _city(cls, value: str) -> str:
+        return _check_city(value)
+
+    @model_validator(mode="after")
+    def _check_id(self) -> AreaRecord:
+        if self.id != area_id(self.city, self.name):
+            raise ValueError(f"商圈代碼應為「{area_id(self.city, self.name)}」，不是「{self.id}」")
+        return self
 
 
 class StationRecord(BaseModel):
     id: str
     name: str
+    city: str
     lat: float
     lng: float
+    transfer_min: int = 3
     is_origin: bool = False
-    area: str | None = None
+    area_id: str | None = None
+
+    @field_validator("city")
+    @classmethod
+    def _city(cls, value: str) -> str:
+        return _check_city(value)
 
 
 class TransitLinkRecord(BaseModel):
     from_station_id: str
     to_station_id: str
+    mode: str
+    line: str
     ride_min: int
     headway_min: int
     first_train: str
     last_train: str
-    note: str = ""
+
+    @field_validator("mode")
+    @classmethod
+    def _check_mode(cls, value: str) -> str:
+        if value not in TRANSIT_MODES:
+            raise ValueError(f"交通方式只能是：{'、'.join(TRANSIT_MODES)}")
+        return value
 
 
 class CinemaRecord(BaseModel):
     external_id: str
     name: str
-    area: str
+    area_id: str
     address: str = ""
     lat: float
     lng: float
@@ -52,6 +93,7 @@ class MovieRecord(BaseModel):
     title: str
     runtime_min: int
     genre: str = ""
+    synopsis: str = ""
     source_url: str = ""
 
 
@@ -71,7 +113,7 @@ class ShowtimeRecord(BaseModel):
 class RestaurantRecord(BaseModel):
     external_id: str
     name: str
-    area: str
+    area_id: str
     address: str = ""
     lat: float
     lng: float
@@ -99,6 +141,7 @@ class RestaurantRecord(BaseModel):
 
 
 class Batch(BaseModel):
+    areas: list[AreaRecord] = Field(default_factory=list)
     stations: list[StationRecord] = Field(default_factory=list)
     transit_links: list[TransitLinkRecord] = Field(default_factory=list)
     cinemas: list[CinemaRecord] = Field(default_factory=list)

@@ -39,13 +39,22 @@ _CONTEXT_LABELS = {
     "label": "場次標示",
     "query": "使用者想看",
     "title": "場次片名",
+    "diet": "飲食限制",
+    "user": "使用者條件",
+    "movie": "要看的電影",
+    "options": "各選項說明",
 }
 
 
 def context_text(context: dict) -> str:
+    """把 context 轉成給 Jev 讀的文字。底線開頭的 key 是給模擬版用的數值，不放進文字。"""
     lines = []
     for key, value in context.items():
-        if isinstance(value, list):
+        if key.startswith("_"):
+            continue
+        if key == "options":
+            value = "\n" + "\n".join(f"- {v}" for v in value)
+        elif isinstance(value, list):
             value = "；".join(str(v) for v in value)
         lines.append(f"{_CONTEXT_LABELS.get(key, key)}：{value}")
     return "\n".join(lines)
