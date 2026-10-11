@@ -1,0 +1,140 @@
+{
+  "_note": "示意資料：影城、餐廳、場次皆為虛構；捷運車程、班距、末班車為估計值。之後會由爬蟲與 TDX API 取代。",
+  "stations": [
+    {"id": "BL07", "name": "板橋", "lat": 25.0143, "lng": 121.4635, "is_origin": true, "area": null},
+    {"id": "BL12", "name": "台北車站", "lat": 25.0464, "lng": 121.5172, "is_origin": true, "area": null},
+    {"id": "BL11", "name": "西門", "lat": 25.0421, "lng": 121.5081, "is_origin": true, "area": null},
+    {"id": "G07", "name": "公館", "lat": 25.0149, "lng": 121.5343, "is_origin": true, "area": null},
+    {"id": "BL18", "name": "市政府", "lat": 25.0410, "lng": 121.5655, "is_origin": false, "area": "信義"},
+    {"id": "R03", "name": "台北101/世貿", "lat": 25.0330, "lng": 121.5637, "is_origin": false, "area": "信義"}
+  ],
+  "transit_links": [
+    {"from_station_id": "BL07", "to_station_id": "BL18", "ride_min": 22, "headway_min": 6, "first_train": "06:00", "last_train": "24:00", "note": "板南線直達"},
+    {"from_station_id": "BL18", "to_station_id": "BL07", "ride_min": 22, "headway_min": 6, "first_train": "06:00", "last_train": "24:05", "note": "板南線直達"},
+    {"from_station_id": "BL07", "to_station_id": "R03", "ride_min": 31, "headway_min": 8, "first_train": "06:00", "last_train": "23:40", "note": "台北車站轉乘"},
+    {"from_station_id": "R03", "to_station_id": "BL07", "ride_min": 31, "headway_min": 8, "first_train": "06:00", "last_train": "23:45", "note": "台北車站轉乘"},
+    {"from_station_id": "BL12", "to_station_id": "BL18", "ride_min": 11, "headway_min": 6, "first_train": "06:00", "last_train": "24:20", "note": "板南線直達"},
+    {"from_station_id": "BL18", "to_station_id": "BL12", "ride_min": 11, "headway_min": 6, "first_train": "06:00", "last_train": "24:15", "note": "板南線直達"},
+    {"from_station_id": "BL12", "to_station_id": "R03", "ride_min": 13, "headway_min": 6, "first_train": "06:00", "last_train": "24:20", "note": "淡水信義線直達"},
+    {"from_station_id": "R03", "to_station_id": "BL12", "ride_min": 13, "headway_min": 6, "first_train": "06:00", "last_train": "24:15", "note": "淡水信義線直達"},
+    {"from_station_id": "BL11", "to_station_id": "BL18", "ride_min": 13, "headway_min": 6, "first_train": "06:00", "last_train": "24:15", "note": "板南線直達"},
+    {"from_station_id": "BL18", "to_station_id": "BL11", "ride_min": 13, "headway_min": 6, "first_train": "06:00", "last_train": "24:10", "note": "板南線直達"},
+    {"from_station_id": "BL11", "to_station_id": "R03", "ride_min": 17, "headway_min": 8, "first_train": "06:00", "last_train": "23:55", "note": "中正紀念堂轉乘"},
+    {"from_station_id": "R03", "to_station_id": "BL11", "ride_min": 17, "headway_min": 8, "first_train": "06:00", "last_train": "23:55", "note": "中正紀念堂轉乘"},
+    {"from_station_id": "G07", "to_station_id": "BL18", "ride_min": 25, "headway_min": 8, "first_train": "06:00", "last_train": "23:50", "note": "西門轉乘"},
+    {"from_station_id": "BL18", "to_station_id": "G07", "ride_min": 25, "headway_min": 8, "first_train": "06:00", "last_train": "23:50", "note": "西門轉乘"},
+    {"from_station_id": "G07", "to_station_id": "R03", "ride_min": 16, "headway_min": 8, "first_train": "06:00", "last_train": "24:00", "note": "中正紀念堂轉乘"},
+    {"from_station_id": "R03", "to_station_id": "G07", "ride_min": 16, "headway_min": 8, "first_train": "06:00", "last_train": "24:00", "note": "中正紀念堂轉乘"}
+  ],
+  "cinemas": [
+    {"external_id": "C1", "name": "星河影城 信義", "area": "信義", "lat": 25.0359, "lng": 121.5670},
+    {"external_id": "C2", "name": "晨光影城 微風", "area": "信義", "lat": 25.0398, "lng": 121.5667},
+    {"external_id": "C3", "name": "河岸影城 101", "area": "信義", "lat": 25.0338, "lng": 121.5649}
+  ],
+  "movies": [
+    {"external_id": "M1", "title": "新片 A", "runtime_min": 128, "genre": "動作"},
+    {"external_id": "M2", "title": "午後的貓", "runtime_min": 106, "genre": "愛情"},
+    {"external_id": "M3", "title": "星際迴響", "runtime_min": 142, "genre": "科幻"},
+    {"external_id": "M4", "title": "新片 A：序章（重映）", "runtime_min": 112, "genre": "動作"}
+  ],
+  "showtime_templates": [
+    {"cinema": "C1", "movie": "M1", "label": "IMAX 2D 英語", "price": 420, "times": ["15:30", "18:10", "21:00"]},
+    {"cinema": "C1", "movie": "M1", "label": "數位 英語", "price": 320, "times": ["16:40", "19:20", "21:40"]},
+    {"cinema": "C1", "movie": "M2", "label": "數位 英語", "price": 300, "times": ["17:00", "19:40"]},
+    {"cinema": "C1", "movie": "M3", "label": "4DX 3D 英語", "price": 470, "times": ["18:30"]},
+    {"cinema": "C1", "movie": "M4", "label": "數位 英語", "price": 300, "times": ["18:00", "20:30"]},
+    {"cinema": "C2", "movie": "M1", "raw_title": "新片A（國語版）", "label": "數位 國語配音", "price": 300, "times": ["17:50", "20:10"]},
+    {"cinema": "C2", "movie": "M2", "label": "數位", "price": 290, "times": ["16:20", "18:40", "21:10"]},
+    {"cinema": "C2", "movie": "M3", "raw_title": "星際迴響 Echoes", "label": "Digital 英", "price": 300, "times": ["17:30", "20:20"]},
+    {"cinema": "C3", "movie": "M1", "raw_title": "新片A", "label": "TITAN 巨幕 英語", "price": 400, "times": ["16:10", "19:10"]},
+    {"cinema": "C3", "movie": "M1", "raw_title": "新片A", "label": "數位 英語", "price": 310, "times": ["18:30", "21:20"]},
+    {"cinema": "C3", "movie": "M2", "label": "數位 英語", "price": 300, "times": ["17:40", "20:00"]},
+    {"cinema": "C3", "movie": "M3", "label": "IMAX 2D 英語", "price": 430, "times": ["19:00"]}
+  ],
+  "restaurants": [
+    {
+      "external_id": "R01", "name": "霧光義式餐館", "area": "信義", "lat": 25.0362, "lng": 121.5664,
+      "description": "義式餐館，手工義大利麵與燉飯，燈光昏黃、座位間距寬，氣氛安靜浪漫。",
+      "reviews": ["很適合約會，服務生會幫忙慶祝紀念日", "燉飯好吃，價位偏高但值得", "週末建議先訂位"],
+      "price_per_person": 900, "hours": {"default": ["11:30", "22:00"]}, "last_order_min": 60, "typical_wait_min": 15, "reservable": true
+    },
+    {
+      "external_id": "R02", "name": "小巷拉麵", "area": "信義", "lat": 25.0372, "lng": 121.5679,
+      "description": "日式拉麵，吧台立食，翻桌快，常常排隊。",
+      "reviews": ["湯頭濃郁，十分鐘就吃完", "排隊排了 30 分鐘", "店內有點擠，不適合聊天"],
+      "price_per_person": 250, "hours": {"default": ["11:00", "23:00"]}, "last_order_min": 30, "typical_wait_min": 25, "reservable": false
+    },
+    {
+      "external_id": "R03", "name": "金燈點心樓", "area": "信義", "lat": 25.0352, "lng": 121.5662,
+      "description": "中式點心餐廳，招牌小籠包，用餐熱鬧，假日常排隊。",
+      "reviews": ["小籠包皮薄，帶長輩來很適合", "人很多有點吵", "候位大概 40 分鐘"],
+      "price_per_person": 600, "hours": {"default": ["11:00", "21:30"]}, "last_order_min": 30, "typical_wait_min": 30, "reservable": false
+    },
+    {
+      "external_id": "R04", "name": "月見燒肉", "area": "信義", "lat": 25.0388, "lng": 121.5690,
+      "description": "燒肉專門店，半包廂座位，店員代烤，適合兩人慢慢烤。",
+      "reviews": ["半包廂很有隱私，約會首選", "肉質很好，價格偏高", "建議提前訂位"],
+      "price_per_person": 1100, "hours": {"default": ["17:00", "24:00"]}, "last_order_min": 60, "typical_wait_min": 10, "reservable": true
+    },
+    {
+      "external_id": "R05", "name": "森之咖啡", "area": "信義", "lat": 25.0345, "lng": 121.5655,
+      "description": "咖啡廳，手沖咖啡、甜點與輕食，窗邊有景觀座位，安靜好聊天。",
+      "reviews": ["下午茶很舒服", "餐點份量偏少，當正餐會吃不飽", "晚上九點就打烊"],
+      "price_per_person": 350, "hours": {"default": ["10:00", "21:00"], "mon": null}, "last_order_min": 30, "typical_wait_min": 10, "reservable": false
+    },
+    {
+      "external_id": "R06", "name": "首爾小館", "area": "信義", "lat": 25.0405, "lng": 121.5670,
+      "description": "韓式料理，炸雞、部隊鍋、韓式拌飯，適合朋友聚會，用餐時段有點吵。",
+      "reviews": ["炸雞很脆，份量大", "很熱鬧，適合一群人", "可以訂位"],
+      "price_per_person": 450, "hours": {"default": ["11:30", "23:30"]}, "last_order_min": 45, "typical_wait_min": 20, "reservable": true
+    },
+    {
+      "external_id": "R07", "name": "雲端景觀餐廳", "area": "信義", "lat": 25.0336, "lng": 121.5646,
+      "description": "高樓景觀西式餐廳，排餐套餐，窗邊可看夜景，適合紀念日。",
+      "reviews": ["夜景超美，求婚成功", "價格很高但很有氣氛", "餐點一道一道上，要慢慢享用"],
+      "price_per_person": 2200, "hours": {"default": ["17:30", "23:00"]}, "last_order_min": 90, "typical_wait_min": 0, "reservable": true
+    },
+    {
+      "external_id": "R08", "name": "漢堡實驗室", "area": "信義", "lat": 25.0380, "lng": 121.5650,
+      "description": "美式漢堡店，平價快速，也可以外帶。",
+      "reviews": ["漢堡多汁，薯條好吃", "座位少，假日很擠", "出餐很快"],
+      "price_per_person": 320, "hours": {"default": ["11:00", "22:30"]}, "last_order_min": 30, "typical_wait_min": 10, "reservable": false
+    },
+    {
+      "external_id": "R09", "name": "湯旅麻辣鍋", "area": "信義", "lat": 25.0398, "lng": 121.5683,
+      "description": "麻辣鍋與個人鍋，用餐限時 100 分鐘，營業到凌晨一點，適合邊吃邊聊天。",
+      "reviews": ["湯底很香，可以慢慢吃", "深夜還有位子", "服務很好"],
+      "price_per_person": 650, "hours": {"default": ["11:30", "25:00"]}, "last_order_min": 60, "typical_wait_min": 20, "reservable": true
+    },
+    {
+      "external_id": "R10", "name": "青葉日式定食", "area": "信義", "lat": 25.0366, "lng": 121.5645,
+      "description": "日式定食，鹽烤魚與丼飯，出餐快，店內安靜簡單。",
+      "reviews": ["一個人吃也自在", "價格實在", "晚上九點打烊"],
+      "price_per_person": 420, "hours": {"default": ["11:00", "21:00"]}, "last_order_min": 30, "typical_wait_min": 5, "reservable": false
+    },
+    {
+      "external_id": "R11", "name": "夜貓酒館", "area": "信義", "lat": 25.0410, "lng": 121.5690,
+      "description": "餐酒館，調酒與下酒菜，燈光昏暗、音樂輕柔，營業到凌晨兩點。",
+      "reviews": ["調酒很有創意，氣氛很好", "餐點普通，適合小酌", "晚上很適合兩人喝一杯"],
+      "price_per_person": 700, "hours": {"default": ["18:00", "26:00"]}, "last_order_min": 60, "typical_wait_min": 5, "reservable": true
+    },
+    {
+      "external_id": "R12", "name": "樂天快餐", "area": "信義", "lat": 25.0400, "lng": 121.5640,
+      "description": "自助餐便當店，菜色多、價格便宜，用餐時間擁擠，以外帶為主。",
+      "reviews": ["便當 100 元有找", "座位很少", "晚上八點半就關門"],
+      "price_per_person": 150, "hours": {"default": ["10:30", "20:30"], "sun": null}, "last_order_min": 15, "typical_wait_min": 5, "reservable": false
+    },
+    {
+      "external_id": "R13", "name": "白色泰式", "area": "信義", "lat": 25.0358, "lng": 121.5690,
+      "description": "泰式料理，打拋豬、綠咖哩，空間明亮，評價兩極。",
+      "reviews": ["口味偏甜，見仁見智", "空間乾淨明亮", "週末有點吵"],
+      "price_per_person": 500, "hours": {"default": ["11:30", "22:00"]}, "last_order_min": 45, "typical_wait_min": 15, "reservable": true
+    },
+    {
+      "external_id": "R14", "name": "甜點工坊 Lune", "area": "信義", "lat": 25.0347, "lng": 121.5675,
+      "description": "法式甜點店，可麗露與蛋糕，內用座位少，多數客人外帶。",
+      "reviews": ["可麗露外酥內軟", "只有六個座位", "適合買回家吃"],
+      "price_per_person": 300, "hours": {"default": ["12:00", "22:00"]}, "last_order_min": 30, "typical_wait_min": 15, "reservable": false
+    }
+  ]
+}

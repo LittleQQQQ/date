@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="zh-Hant-TW">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>約會一條龍</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="top">
+    <div class="brand">
+      <h1>約會一條龍</h1>
+      <p>電影 ＋ 餐廳 ＋ 交通，一次排好</p>
+    </div>
+    <ul class="chips" id="status" aria-label="系統狀態"></ul>
+  </header>
+
+  <main class="wrap">
+    <section class="card conditions">
+      <h2>選擇約會條件</h2>
+      <form id="plan-form" novalidate>
+        <div class="grid">
+          <label>商圈<select name="area"></select></label>
+          <label>日期<select name="date"></select></label>
+          <label>出發站<select name="origin"></select></label>
+          <label>想看的片<select name="movie_query"></select></label>
+          <label>最早出門<select name="depart_after"></select></label>
+          <label>最晚到家<select name="home_by"></select></label>
+          <label>影廳<select name="screen_type"></select></label>
+          <label>語言<select name="audio"></select></label>
+          <label>想吃<select name="cuisine"></select></label>
+          <label>吃飯順序
+            <select name="meal_order">
+              <option value="any">都可以</option>
+              <option value="after">看完電影再吃</option>
+              <option value="before">先吃再看電影</option>
+            </select>
+          </label>
+          <label>每人預算<select name="budget_per_person"></select></label>
+          <label>影城到餐廳步行<select name="max_walk_min"></select></label>
+        </div>
+        <div class="form-foot">
+          <button type="submit" class="primary">幫我排行程</button>
+          <p class="field-error" id="form-error" hidden></p>
+        </div>
+      </form>
+      <p class="hint">按下後會透過 MCP 呼叫排程工具，Jev 負責判斷，再由本機 LLM 寫摘要。</p>
+    </section>
+
+    <section id="results" aria-live="polite"></section>
+  </main>
+
+  <footer class="foot" id="foot"></footer>
+  <script src="app.js"></script>
+</body>
+</html>

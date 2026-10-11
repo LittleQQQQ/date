@@ -1,0 +1,117 @@
+"""資料來源（collector）介面。
+
+每個資料來源——示意資料、影城場次爬蟲、餐廳爬蟲、TDX 捷運 API——都輸出同一種 Batch，
+再由 app/ingest.py 寫進資料庫。排程只讀資料庫，所以換資料來源時其他程式都不用改。
+
+新增一個爬蟲的步驟：
+1. 在 app/collectors/ 新增檔案，寫一個繼承 Collector 的類別，實作 collect()
+2. 在 app/collectors/__init__.py 的 COLLECTORS 登記名稱
+3. 執行 python -m app.ingest --source 名稱
+"""
+from __future__ import annotations
+
+import datetime as dt
+from abc import ABC, abstractmethod
+
+from pydantic import BaseModel, Field, field_validator
+
+from ..timeutil import WEEKDAY_KEYS, to_min
+
+
+class StationRecord(BaseModel):
+    id: str
+    name: str
+    lat: float
+    lng: float
+    is_origin: bool = False
+    area: str | None = None
+
+
+class TransitLinkRecord(BaseModel):
+    from_station_id: str
+    to_station_id: str
+    ride_min: int
+    headway_min: int
+    first_train: str
+    last_train: str
+    note: str = ""
+
+
+class CinemaRecord(BaseModel):
+    external_id: str
+    name: str
+    area: str
+    address: str = ""
+    lat: float
+    lng: float
+    source_url: str = ""
+
+
+class MovieRecord(BaseModel):
+    external_id: str
+    title: str
+    runtime_min: int
+    genre: str = ""
+    source_url: str = ""
+
+
+class ShowtimeRecord(BaseModel):
+    external_id: str
+    cinema_external_id: str
+    # 來源網站有連到電影頁就填；沒有的話 ingest 會用片名比對
+    movie_external_id: str | None = None
+    raw_title: str
+    date: dt.date
+    start: str
+    label: str
+    price: int
+    source_url: str = ""
+
+
+class RestaurantRecord(BaseModel):
+    external_id: str
+    name: str
+    area: str
+    address: str = ""
+    lat: float
+    lng: float
+    description: str
+    reviews: list[str] = Field(default_factory=list)
+    price_per_person: int
+    hours: dict[str, list[str] | None]
+    last_order_min: int = 30
+    typical_wait_min: int = 10
+    reservable: bool = False
+    source_url: str = ""
+
+    @field_validator("hours")
+    @classmethod
+    def _check_hours(cls, value: dict[str, list[str] | None]) -> dict[str, list[str] | None]:
+        if "default" not in value:
+            raise ValueError("hours 至少要有 default")
+        for key, span in value.items():
+            if key != "default" and key not in WEEKDAY_KEYS:
+                raise ValueError(f"hours 的 key 只能是 default 或 {', '.join(WEEKDAY_KEYS)}：{key}")
+            if span is not None:
+                if len(span) != 2 or to_min(span[0]) >= to_min(span[1]):
+                    raise ValueError(f"營業時間格式錯誤：{span}")
+        return value
+
+
+class Batch(BaseModel):
+    stations: list[StationRecord] = Field(default_factory=list)
+    transit_links: list[TransitLinkRecord] = Field(default_factory=list)
+    cinemas: list[CinemaRecord] = Field(default_factory=list)
+    movies: list[MovieRecord] = Field(default_factory=list)
+    showtimes: list[ShowtimeRecord] = Field(default_factory=list)
+    restaurants: list[RestaurantRecord] = Field(default_factory=list)
+    # 這次抓取涵蓋的場次日期（含頭尾）。範圍內同一來源的舊場次會被整批取代，已取消的場次就會消失
+    showtime_dates: tuple[dt.date, dt.date] | None = None
+
+
+class Collector(ABC):
+    name: str = ""  # 也會寫進資料表的 source 欄位
+
+    @abstractmethod
+    def collect(self, start: dt.date, days: int) -> Batch:
+        """抓取資料。start、days 是希望抓的場次日期範圍；不需要場次的來源可以忽略。"""

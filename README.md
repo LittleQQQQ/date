@@ -1,0 +1,148 @@
+# 約會一條龍（Jev 生活場景應用 12）
+
+用下拉式選單選好日期、出發站、想看的片、幾點前到家、想吃什麼，
+系統排出「電影 ＋ 餐廳 ＋ 捷運」的完整時間軸，並給出最推薦、最穩、最省三個方案。
+
+> 第一版使用**示意資料**（虛構的影城與餐廳、估計的捷運時間），Jev 使用**模擬版**。
+
+## 架構
+
+```
+網頁（frontend/）：全部用下拉式選單
+  │  條件 → /api/plan
+  ▼
+FastAPI（app/api.py）
+  ├─ 透過 MCP 呼叫 plan_date（app/mcp_server.py；外部用戶端也能連 /mcp）
+  ├─ LLM（本機 Ollama）：把結果寫成口語摘要
+  ▼
+服務層（app/services.py）── Jev（app/jev/）：封閉式判斷＋機率，結果快取在資料庫
+  ▼
+排程計算（app/planner.py）：列舉組合、逐段檢查時間、評分挑選
+  ▼
+PostgreSQL ◄── 匯入（app/ingest.py）◄── 資料來源（app/collectors/）：現在是示意資料，之後換成爬蟲
+```
+
+三段分工對應簡報：
+
+| 階段 | 程式位置 | 內容 |
+|---|---|---|
+| 程式抓取 | `app/collectors/`、`app/ingest.py` | 定時批次抓資料寫進資料庫，保留原始文字 |
+| Jev 判斷 | `app/jev/` | 約會適合度、用餐快慢、料理類型、影廳、語言、片名是否相符 |
+| 程式計算 | `app/planner.py` | 時間軸、緩衝、最後點餐、末班車、評分 |
+
+LLM 只處理語言，**時間與金額都由程式計算**；LLM 摘要若出現程式沒提供的數字，會自動改用範本摘要。
+
+另外保留了自然語言 API `POST /api/chat`（`{"message": "這週六想在信義區看《新片 A》……"}`），
+由規則＋LLM 把一句話轉成條件後一樣走 MCP 排程。網頁目前沒有用到，之後要做語音或聊天介面時可以接。
+
+## 快速開始（Windows）
+
+需要 Python 3.10 以上。在 `date-planner` 資料夾執行：
+
+```powershell
+py -3 -m venv .venv
+.venv\Scripts\python.exe -m pip install -r requirements.txt
+.venv\Scripts\python.exe -m uvicorn app.main:app --port 8000
+```
+
+打開 http://127.0.0.1:8000 。第一次啟動會自動匯入示意資料（今天起 14 天的場次）。
+
+- 沒有 `.env` 時使用專案資料夾裡的 SQLite（`dev.db`），可以先跑起來。
+- Ollama 沒開也能用，摘要會改用範本。要用 LLM：先開 Ollama，並下載模型 `ollama pull qwen2.5:3b`。
+
+## 改用 PostgreSQL
+
+1. 打開 `db/init.sql`，把 `change_me` 改成自己的密碼，用 postgres 管理員帳號執行：
+   ```powershell
+   & "C:\Program Files\PostgreSQL\18\bin\psql.exe" -U postgres -f db\init.sql
+   ```
+2. 複製 `.env.example` 為 `.env`，把 `DATABASE_URL` 裡的密碼改成同一個。
+3. 匯入資料（資料表會自動建立）：
+   ```powershell
+   .venv\Scripts\python.exe -m app.ingest
+   ```
+4. 照常啟動伺服器。
+
+## 設定（.env）
+
+| 變數 | 預設 | 說明 |
+|---|---|---|
+| `DATABASE_URL` | 空（用 SQLite） | 例：`postgresql+psycopg://date_planner:密碼@localhost:5432/date_planner` |
+| `JEV_MODE` | `mock` | `mock` 規則模擬；`api` 呼叫正式 Jev API |
+| `JEV_API_URL`、`JEV_API_KEY` | 空 | `JEV_MODE=api` 時使用 |
+| `JEV_CONFIDENCE_THRESHOLD` | `0.6` | Jev 最高機率低於此值就請使用者確認 |
+| `OLLAMA_URL` | `http://localhost:11434` | 留空 = 不用 LLM |
+| `OLLAMA_MODEL` | `qwen2.5:3b` | |
+| `MCP_CLIENT_URL` | 空 | 網頁排程呼叫 MCP 的方式：空 = 同程序內連線；填 `http://127.0.0.1:8000/mcp` = 走 HTTP |
+
+## 接上正式的 Jev API
+
+只要改 `app/jev/api_client.py`。目前假設的介面：
+
+```
+POST {JEV_API_URL}/predict
+{"question": "這家餐廳適合兩人約會嗎？", "options": ["適合約會", "普通", "不適合"], "context": "名稱：…\n介紹：…\n評論：…"}
+→ {"probabilities": [0.82, 0.15, 0.03]}
+```
+
+改好後在 `.env` 設 `JEV_MODE=api`，再執行 `python -m app.ingest` 重新做預先判斷。
+判斷結果快取在 `jev_judgments` 表；原始文字沒變就不會重問。
+
+## 新增爬蟲
+
+1. 在 `app/collectors/` 新增檔案，繼承 `Collector`，實作 `collect(start, days)`，回傳 `Batch`（格式見 `app/collectors/base.py`）。
+2. 在 `app/collectors/__init__.py` 的 `COLLECTORS` 登記名稱。
+3. 執行 `python -m app.ingest --source 名稱`，可用 Windows 工作排程器定時執行。
+
+注意事項：
+
+- 捷運建議直接用交通部 TDX API（官方開放資料），不必爬蟲。
+- 遵守各網站的 robots.txt 與服務條款、控制抓取頻率；Google 地圖不允許爬取，餐廳資料需另找可合法使用的來源。
+- 抓取失敗時會保留舊資料，錯誤記在 `scrape_runs` 表。
+- 場次的片名寫法和電影資料不同時，`movie_id` 會是空的，排程會跳過（不知道片長）。
+
+## MCP
+
+伺服器啟動後，MCP 端點在 `http://127.0.0.1:8000/mcp`（Streamable HTTP），可以用 MCP Inspector 連線測試。
+
+| 工具 | 用途 |
+|---|---|
+| `plan_date` | 主功能：條件 → 三個方案、Jev 待確認問題、排除原因 |
+| `search_showtimes` | 查某天某商圈的場次 |
+| `find_restaurants` | 查影城步行範圍內的餐廳與 Jev 判斷 |
+| `check_route` | 查出發站到商圈的車程、班距、末班車 |
+
+## 測試
+
+```powershell
+.venv\Scripts\python.exe -m pytest
+```
+
+測試使用獨立的暫存 SQLite、Jev 模擬版，不連 LLM。
+
+## 專案結構
+
+```
+app/
+  main.py          進入點：網頁、/api、/mcp
+  api.py           REST API
+  mcp_server.py    MCP 工具
+  services.py      服務層（API 與 MCP 共用）
+  planner.py       排程計算
+  llm.py           Ollama：需求解析、摘要（含規則備援）
+  jev/             Jev 題目、模擬版、API 版、快取
+  collectors/      資料來源介面與示意資料
+  ingest.py        匯入與 Jev 預先判斷
+  models.py        資料表
+data/fixture.json  示意資料
+frontend/          網頁
+db/init.sql        PostgreSQL 建立帳號與資料庫
+tests/             自動測試
+```
+
+## 第一版的限制
+
+- 資料是示意資料；步行時間用直線距離 × 1.3 估算，沒有路網。
+- 只有信義區一個商圈；捷運以「車程＋最長班距」估算，不是真正的時刻表。
+- 候位時間是依尖峰離峰的粗略估計。
+- Jev 模擬版只是關鍵字規則，用來展示「有把握／沒把握」兩種情況。
