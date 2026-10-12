@@ -1,7 +1,7 @@
 """抓網頁的共用工具：限速、重試、快取。
 
 - 同一個網站每秒最多一次請求（min_interval），避免造成對方負擔。
-- 連線失敗、429、5xx 會等一下再試（2 秒、4 秒），最多 retries 次；其他 4xx 直接失敗。
+- 連線失敗、429、5xx 會等一下再試（預設 2 秒、4 秒，由 backoff 決定），最多 retries 次；其他 4xx 直接失敗。
 - cache_days > 0 的網址存在 data/cache/，有效期間內不重抓（地圖頁、電影頁這種很少變的頁面）。
 """
 from __future__ import annotations
@@ -32,6 +32,7 @@ class Fetcher:
         min_interval: float = 1.0,
         retries: int = 3,
         timeout: float = 30.0,
+        backoff: float = 2.0,
         client: httpx.Client | None = None,
         sleep: Callable[[float], None] = time.sleep,
         clock: Callable[[], float] = time.monotonic,
@@ -39,6 +40,7 @@ class Fetcher:
         self.cache_dir = cache_dir
         self.min_interval = min_interval
         self.retries = retries
+        self.backoff = backoff
         self.client = client or httpx.Client(
             timeout=timeout, headers={"User-Agent": USER_AGENT}, follow_redirects=True
         )
@@ -77,7 +79,7 @@ class Fetcher:
                     raise FetchError(f"{url} 回應 {resp.status_code}")
                 last_error = f"回應 {resp.status_code}"
             if attempt < self.retries - 1:
-                self.sleep(2 * 2**attempt)
+                self.sleep(self.backoff * 2**attempt)
         raise FetchError(f"{url} 重試 {self.retries} 次仍失敗：{last_error}")
 
     def _wait_turn(self, url: str) -> None:

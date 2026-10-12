@@ -54,7 +54,7 @@ py -3 -m venv .venv
 .venv\Scripts\python.exe -m uvicorn app.main:app --port 8000
 ```
 
-打開 http://127.0.0.1:8000 。第一次啟動會先匯入商圈與交通，接著在背景抓餐廳（約半分鐘）和影城場次（約 3～4 分鐘），抓完網頁會自動載入。之後伺服器每天早上 6 點自動更新（開眼每天、OSM 每週）。
+打開 http://127.0.0.1:8000 。第一次啟動會先匯入商圈與交通，接著在背景抓餐廳（約 3～6 分鐘，視 Overpass 忙碌程度）和影城場次（第一次約 10 分鐘，之後每天約 2 分鐘），抓完網頁會自動載入。之後伺服器每天早上 6 點自動更新（開眼每天、OSM 每週）。
 
 - 沒有 `.env` 時使用專案資料夾裡的 SQLite（`dev.db`），可以先跑起來。
 - Ollama 沒開也能用，摘要會改用範本。要用 LLM：先開 Ollama，並下載模型 `ollama pull qwen2.5:3b`。
@@ -118,7 +118,7 @@ POST {JEV_API_URL}/predict
 |---|---|---|---|
 | `base` | `app/collectors/fixture.py` | 商圈、車站、交通路段（`data/fixture/` 手寫的估計值） | 每次啟動 |
 | `atmovies` | `app/collectors/atmovies.py` | 開眼電影網：商圈附近的影城、電影（片長、簡介）、今天起 4 天的場次 | 每天 |
-| `osm` | `app/collectors/osm.py` | OpenStreetMap：商圈車站步行 15 分鐘內的餐廳，每個商圈最多 60 家 | 每週 |
+| `osm` | `app/collectors/osm.py` | OpenStreetMap：商圈車站步行 15 分鐘內的餐廳，每個商圈最多 60 家 | 每週（有商圈沒抓到則下一輪重抓） |
 | `fixture` | `app/collectors/fixture.py` | 完整的虛構資料，只給自動測試用 | — |
 
 手動執行：`python -m app.ingest --source atmovies`（或 `osm`、`base`）。
@@ -127,6 +127,7 @@ POST {JEV_API_URL}/predict
 - 開眼沒有票價和片型：票價依版本估計（IMAX、4DX 這類 420 元，其他 300 元）；片型由 Jev 讀簡介判斷，沒把握就顯示「片型未知」。
 - OSM 沒有評論和價位，大約只有一成店家標了營業時間：介紹由標籤組成；營業時間、價位依店的類型估計。
 - 抓取失敗時保留舊資料，錯誤記在 `scrape_runs` 表；某家影城或某個商圈失敗，只有它保留舊資料。
+- Overpass 常因為太忙而逾時（504）。OSM 單次查詢會重試 3 次（間隔 15 秒、30 秒）；若執行完仍有商圈沒抓到，下一次檢查（下次啟動，或隔天 `REFRESH_HOUR` 點）會再抓一次 OSM，不必等一週。
 - 來源標示：場次來自開眼電影網；餐廳資料 © OpenStreetMap 貢獻者，以 ODbL 授權。
 
 新增爬蟲：在 `app/collectors/` 新增檔案，繼承 `Collector`，實作 `collect(start, days)` 回傳 `Batch`（格式見 `app/collectors/base.py`）；需要商圈範圍就設 `needs_coverage = True`，建構子接收 `coverage`。最後在 `app/collectors/__init__.py` 的 `COLLECTORS` 登記。

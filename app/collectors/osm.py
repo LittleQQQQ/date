@@ -258,7 +258,8 @@ class OsmCollector(Collector):
 
     def __init__(self, coverage: Coverage, fetcher: Fetcher | None = None):
         self.coverage = coverage
-        self.fetcher = fetcher or Fetcher(timeout=90)  # Overpass 忙的時候回應比較慢
+        # Overpass 忙的時候回應很慢、常回 504，要等久一點再試（15 秒、30 秒）
+        self.fetcher = fetcher or Fetcher(timeout=120, backoff=15)
 
     def collect(self, start: dt.date, days: int) -> Batch:
         restaurants: list[RestaurantRecord] = []

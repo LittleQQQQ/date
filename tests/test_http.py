@@ -4,11 +4,12 @@ import pytest
 from app.collectors.http import Fetcher, FetchError
 
 
-def make(handler, cache_dir=None, min_interval=1.0):
+def make(handler, cache_dir=None, min_interval=1.0, **options):
     sleeps: list[float] = []
     fetcher = Fetcher(
         cache_dir=cache_dir,
         min_interval=min_interval,
+        **options,
         client=httpx.Client(transport=httpx.MockTransport(handler)),
         sleep=sleeps.append,
         clock=lambda: 0.0,  # 時間不會前進，所以同一網站的第二個請求一定要等滿間隔
@@ -40,6 +41,18 @@ def test_retries_on_503_then_succeeds():
     assert fetcher.get("https://a.test/x") == "ok"
     assert len(calls) == 3
     assert sleeps == [2, 4]
+
+
+def test_backoff_sets_the_retry_wait():
+    calls = []
+
+    def handler(req):
+        calls.append(1)
+        return httpx.Response(503) if len(calls) < 3 else httpx.Response(200, text="ok")
+
+    fetcher, sleeps = make(handler, min_interval=0, backoff=15)
+    assert fetcher.get("https://a.test/x") == "ok"
+    assert sleeps == [15, 30]
 
 
 def test_gives_up_after_retries():
