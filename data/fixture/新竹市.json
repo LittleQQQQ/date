@@ -1,0 +1,13 @@
+{
+  "_note": "商圈與交通為手寫估計值；座標取自 OpenStreetMap（2026-10-12）。",
+  "areas": [
+    {"id": "新竹市/東區", "city": "新竹市", "name": "東區"}
+  ],
+  "stations": [
+    {"id": "hsc-main", "name": "新竹", "city": "新竹市", "lat": 24.80140, "lng": 120.97168, "transfer_min": 5, "is_origin": true, "area_id": "新竹市/東區"},
+    {"id": "hsc-bigcity", "name": "巨城購物", "city": "新竹市", "lat": 24.80931, "lng": 120.97558, "transfer_min": 2, "is_origin": false, "area_id": "新竹市/東區"}
+  ],
+  "transit_links": [
+    {"from": "hsc-main", "to": "hsc-bigcity", "mode": "公車", "line": "公車（新竹車站—巨城）", "ride": 10, "headway": 15, "first": "06:00", "last": "22:30", "both_ways": true}
+  ]
+}

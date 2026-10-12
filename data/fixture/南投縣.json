@@ -1,0 +1,10 @@
+{
+  "_note": "商圈與交通為手寫估計值；座標取自 OpenStreetMap（2026-10-12）。南投市沒有火車站，從台中車站或高鐵台中搭客運。",
+  "areas": [
+    {"id": "南投縣/南投市", "city": "南投縣", "name": "南投市"}
+  ],
+  "stations": [
+    {"id": "nan-nantou", "name": "南投（統聯）", "city": "南投縣", "lat": 23.90572, "lng": 120.68840, "transfer_min": 3, "is_origin": true, "area_id": "南投縣/南投市"}
+  ],
+  "transit_links": []
+}

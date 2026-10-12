@@ -1,0 +1,10 @@
+{
+  "_note": "商圈與交通為手寫估計值；座標取自 OpenStreetMap（2026-10-12）。",
+  "areas": [
+    {"id": "屏東縣/屏東市", "city": "屏東縣", "name": "屏東市"}
+  ],
+  "stations": [
+    {"id": "pif-main", "name": "屏東", "city": "屏東縣", "lat": 22.66885, "lng": 120.48613, "transfer_min": 5, "is_origin": true, "area_id": "屏東縣/屏東市"}
+  ],
+  "transit_links": []
+}
