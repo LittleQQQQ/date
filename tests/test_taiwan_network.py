@@ -35,6 +35,8 @@ CINEMAS = [
     ("中影屏東影城", 22.670618, 120.491952, "屏東縣/屏東市"),
     ("嘉義秀泰影城", 23.494348, 120.444086, None),
     ("雲林北港秀泰", 23.569749, 120.299199, None),
+    ("in89澎湖影城", 23.568284, 119.573911, "澎湖縣/馬公"),
+    ("金獅影城", 24.446036, 118.369248, "金門縣/金湖"),
 ]
 
 # 本島商圈：都要能從台北車站去、也回得來
@@ -86,3 +88,38 @@ def test_dome_is_only_a_transfer_station_now(base):
     assert base.get(Area, "高雄市/巨蛋") is None
     dome = base.get(Station, "khh-dome")
     assert dome.area_id is None and dome.is_origin
+
+
+# 離島商圈：只能從島上的出發站去
+ISLAND_AREAS = {
+    "澎湖縣/馬公": ["pen-magong"],
+    "金門縣/金湖": ["kin-jincheng", "kin-shanwai"],
+}
+
+
+@pytest.mark.parametrize("area_id, island_origins", ISLAND_AREAS.items())
+def test_island_area_only_reachable_from_the_island(base, area_id, island_origins):
+    stations = _area_stations(base, area_id)
+    assert stations, f"{area_id} 沒有車站"
+    graph = services.load_graph(base)
+    assert not any(graph.reachable("tpe-main", s) for s in stations)
+    for origin in island_origins:
+        assert _reachable_both_ways(graph, origin, stations), (area_id, origin)
+
+
+def test_twenty_cities_have_areas(base):
+    areas = base.scalars(select(Area)).all()
+    assert len(areas) == 21
+    cities = {a.city for a in areas}
+    assert len(cities) == 20
+    assert "嘉義縣" not in cities and "連江縣" not in cities
+
+
+def test_every_area_has_a_station(base):
+    for area in base.scalars(select(Area)):
+        assert _area_stations(base, area.id), area.id
+
+
+def test_check_route_reaches_new_areas(base):
+    assert services.check_route(base, "基隆", "基隆市/基隆車站", "18:00")
+    assert services.check_route(base, "馬公總站", "澎湖縣/馬公", "18:00")
