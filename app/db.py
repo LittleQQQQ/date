@@ -14,7 +14,8 @@ class Base(DeclarativeBase):
 
 def _make_engine(url: str):
     if url.startswith("sqlite"):
-        return create_engine(url, connect_args={"check_same_thread": False})
+        # 背景更新和網頁請求可能同時寫入，等鎖最多 30 秒
+        return create_engine(url, connect_args={"check_same_thread": False, "timeout": 30})
     return create_engine(url, pool_pre_ping=True)
 
 

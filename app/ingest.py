@@ -69,22 +69,56 @@ def upsert_batch(session: Session, source: str, batch: Batch) -> dict[str, int]:
         session.add(row)
     counts["transit_links"] = len(batch.transit_links)
 
-    cinema_rows = {rec.external_id: _upsert(session, Cinema, source, rec, now) for rec in batch.cinemas}
+    # 影城、餐廳要屬於資料庫裡有的商圈；爬蟲已經篩過，這裡再擋一次
+    area_ids = set(session.scalars(select(Area.id)))
+    outside = 0
+    cinema_rows: dict[str, Cinema] = {}
+    for rec in batch.cinemas:
+        if rec.area_id not in area_ids:
+            outside += 1
+            continue
+        cinema_rows[rec.external_id] = _upsert(session, Cinema, source, rec, now)
     movie_rows = {rec.external_id: _upsert(session, Movie, source, rec, now) for rec in batch.movies}
+    seen_restaurants: set[str] = set()
     for rec in batch.restaurants:
+        if rec.area_id not in area_ids:
+            outside += 1
+            continue
         _upsert(session, Restaurant, source, rec, now)
-    counts.update(cinemas=len(batch.cinemas), movies=len(batch.movies), restaurants=len(batch.restaurants))
+        seen_restaurants.add(rec.external_id)
+    session.flush()
+
+    removed = 0
+    if batch.restaurant_areas:
+        stale = select(Restaurant).where(
+            Restaurant.source == source,
+            Restaurant.area_id.in_(batch.restaurant_areas),
+            Restaurant.external_id.not_in(seen_restaurants),
+        )
+        for row in session.scalars(stale).all():
+            session.delete(row)
+            removed += 1
+    counts.update(
+        cinemas=len(cinema_rows), movies=len(movie_rows), restaurants=len(seen_restaurants),
+        restaurants_removed=removed, places_outside_areas=outside,
+    )
     session.flush()
 
     if batch.showtime_dates:
         first, last = batch.showtime_dates
-        session.execute(
-            delete(Showtime).where(
-                Showtime.source == source,
-                Showtime.date >= first.isoformat(),
-                Showtime.date <= last.isoformat(),
-            )
+        stmt = delete(Showtime).where(
+            Showtime.source == source,
+            Showtime.date >= first.isoformat(),
+            Showtime.date <= last.isoformat(),
         )
+        if batch.showtime_cinemas is not None:
+            ids = [
+                row.id
+                for eid in batch.showtime_cinemas
+                if (row := cinema_rows.get(eid) or _find(session, Cinema, source, eid))
+            ]
+            stmt = stmt.where(Showtime.cinema_id.in_(ids))
+        session.execute(stmt)
 
     # 對不到電影編號時，用正規化後的片名找同一來源的電影
     movies_by_title = {
@@ -113,11 +147,13 @@ def upsert_batch(session: Session, source: str, batch: Batch) -> dict[str, int]:
                 label=rec.label,
                 price=rec.price,
                 source_url=rec.source_url,
+                estimated=rec.estimated,
                 fetched_at=now,
             )
         )
         added += 1
     counts.update(showtimes=added, showtimes_skipped=skipped, showtimes_without_movie=unlinked)
+    counts.update(batch.stats)
     session.flush()
     return counts
 
