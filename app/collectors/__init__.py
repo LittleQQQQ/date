@@ -6,12 +6,14 @@ from .atmovies import AtmoviesCollector
 from .base import Batch, Collector
 from .coverage import Coverage, load_coverage
 from .fixture import BaseCollector, FixtureCollector
+from .osm import OsmCollector
 
 # 資料來源登記表：新增爬蟲後在這裡加一行
 COLLECTORS: dict[str, type[Collector]] = {
     BaseCollector.name: BaseCollector,
     FixtureCollector.name: FixtureCollector,
     AtmoviesCollector.name: AtmoviesCollector,
+    OsmCollector.name: OsmCollector,
 }
 
 

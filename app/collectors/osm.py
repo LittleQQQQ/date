@@ -7,10 +7,21 @@ OSM 有店名、座標，部分店家有料理類型（cuisine）與營業時間
 """
 from __future__ import annotations
 
+import datetime as dt
+import json
 import re
 from collections import Counter
 
+from ..geo import DETOUR, WALK_M_PER_MIN
+from ..planner import STATION_WALK_MAX
 from ..timeutil import WEEKDAY_KEYS, hhmm
+from .base import Batch, Collector, RestaurantRecord, ScrapeError
+from .coverage import AreaCoverage, Coverage, Point
+from .http import Fetcher, FetchError
+
+OVERPASS_URL = "https://overpass-api.de/api/interpreter"
+SEARCH_RADIUS_M = round(STATION_WALK_MAX * WALK_M_PER_MIN / DETOUR)  # 步行 15 分鐘的直線距離，約 865 公尺
+MAX_RESTAURANTS_PER_AREA = 60  # 太多會讓排程組合暴增，Jev 選餐廳的選項也會太多
 
 AMENITIES = ("restaurant", "cafe", "fast_food", "bar", "pub")
 KIND_WORDS = {"restaurant": "餐廳", "cafe": "咖啡廳", "fast_food": "速食店", "bar": "酒館", "pub": "酒館"}
@@ -191,3 +202,93 @@ def completeness(tags: dict) -> int:
     """資料完整度：有看得懂的營業時間 +2、有對得到的料理類別 +1。挑店時優先留資料完整的。"""
     has_hours = parse_opening_hours(tags.get("opening_hours", "")) is not None
     return 2 * has_hours + (cuisine_category(tags) is not None)
+
+
+def overpass_query(stations: list[Point]) -> str:
+    amenity = "|".join(AMENITIES)
+    lines = [
+        f'  nwr["amenity"~"^({amenity})$"]["name"](around:{SEARCH_RADIUS_M},{p.lat:.6f},{p.lng:.6f});'
+        for p in stations
+    ]
+    return "[out:json][timeout:60];\n(\n" + "\n".join(lines) + "\n);\nout center tags;"
+
+
+def _point(element: dict) -> Point | None:
+    if "lat" in element and "lon" in element:
+        return Point(element["lat"], element["lon"])
+    if center := element.get("center"):
+        return Point(center["lat"], center["lon"])
+    return None
+
+
+def _address(tags: dict) -> str:
+    if full := tags.get("addr:full"):
+        return full
+    return "".join(tags.get(k, "") for k in ("addr:city", "addr:district", "addr:street", "addr:housenumber"))
+
+
+def to_record(element: dict, area_id: str) -> RestaurantRecord | None:
+    tags = element.get("tags", {})
+    point = _point(element)
+    if point is None or not tags.get("name"):
+        return None
+    amenity = tags.get("amenity", "restaurant")
+    category = cuisine_category(tags)
+    hours, hours_estimated = place_hours(tags)
+    osm_id = f"{element['type']}/{element['id']}"
+    return RestaurantRecord(
+        external_id=osm_id,
+        name=tags["name"][:50],
+        area_id=area_id,
+        address=_address(tags)[:200],
+        lat=point.lat,
+        lng=point.lng,
+        description=describe(tags, category),
+        price_per_person=estimate_price(amenity, category),
+        hours=hours,
+        reservable=tags.get("reservation") in RESERVABLE,
+        source_url=f"https://www.openstreetmap.org/{osm_id}",
+        estimated=(["hours"] if hours_estimated else []) + ["price"],
+    )
+
+
+class OsmCollector(Collector):
+    name = "osm"
+    needs_coverage = True
+
+    def __init__(self, coverage: Coverage, fetcher: Fetcher | None = None):
+        self.coverage = coverage
+        self.fetcher = fetcher or Fetcher(timeout=90)  # Overpass 忙的時候回應比較慢
+
+    def collect(self, start: dt.date, days: int) -> Batch:
+        restaurants: list[RestaurantRecord] = []
+        done: list[str] = []
+        failed = 0
+        for area in self.coverage.areas:
+            try:
+                data = json.loads(self.fetcher.post(OVERPASS_URL, {"data": overpass_query(area.stations)}))
+            except (FetchError, ValueError):
+                failed += 1
+                continue
+            restaurants += self._pick(area, data.get("elements", []))
+            done.append(area.id)
+        if self.coverage.areas and not done:
+            raise ScrapeError("Overpass API 所有商圈都查詢失敗")
+        return Batch(restaurants=restaurants, restaurant_areas=done, stats={"failed_areas": failed})
+
+    def _pick(self, area: AreaCoverage, elements: list[dict]) -> list[RestaurantRecord]:
+        """一個商圈最多留 MAX_RESTAURANTS_PER_AREA 家：資料完整的優先，其次離影城近的。"""
+        ranked = []
+        seen: set[str] = set()
+        for element in elements:
+            point = _point(element)
+            if point is None or self.coverage.area_for(point.lat, point.lng) != area.id:
+                continue  # 離別的商圈更近（或超出範圍），交給那個商圈
+            record = to_record(element, area.id)
+            if record is None or record.external_id in seen:
+                continue
+            seen.add(record.external_id)
+            tags = element.get("tags", {})
+            ranked.append((-completeness(tags), area.walk_to_cinemas(point), record.name, record))
+        ranked.sort(key=lambda item: item[:3])
+        return [item[3] for item in ranked[:MAX_RESTAURANTS_PER_AREA]]
