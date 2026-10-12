@@ -608,6 +608,16 @@ def _plan_dict(labels: list[str], pick: dict) -> dict:
     }
 
 
+OUTSIDE_WINDOW = "場次時間落在出門到回家的時間之外"
+
+
+def _fits_window(req: PlanRequest, s: ShowtimeInfo) -> bool:
+    """開場前到得了影城、散場時還沒超過最晚到家：任何排法的必要條件，先篩掉可以省下大量組合。"""
+    arrive_cinema = s.start - PRE_SHOW_MIN
+    film_end = s.start + ADS_MIN + s.runtime_min
+    return arrive_cinema >= to_min(req.depart_after) and film_end <= to_min(req.home_by)
+
+
 def plan(req: PlanRequest, ctx: PlanContext) -> dict:
     thr = ctx.threshold
     asks: dict[str, dict] = {}
@@ -623,6 +633,12 @@ def plan(req: PlanRequest, ctx: PlanContext) -> dict:
     candidates: list[Candidate] = []
     checked = 0
     for s in showtimes:
+        if not _fits_window(req, s):
+            skipped = len(restaurants) * len(builders)
+            checked += skipped
+            if skipped:
+                rejections[OUTSIDE_WINDOW] += skipped
+            continue
         for r in restaurants:
             checked += len(builders)
             if walk_minutes(s.cinema, r.place) > req.max_walk_min:
