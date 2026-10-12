@@ -213,7 +213,7 @@ function renderStatus(meta, status) {
 // ---------- 第一次啟動：等爬蟲抓完 ----------
 
 function renderWaiting(refresh) {
-  const what = refresh.running === "atmovies" ? "正在抓取影城場次（第一次約 10 分鐘）" : "正在抓取餐廳資料（約 3～6 分鐘）";
+  const what = refresh.running === "atmovies" ? "正在抓取影城場次（第一次約 20 分鐘）" : "正在抓取餐廳資料（約 10～20 分鐘）";
   $("#results").innerHTML = `<section class="card summary"><p class="loading">第一次啟動，${what}，完成後會自動載入。</p></section>`;
 }
 
