@@ -1,0 +1,14 @@
+{
+  "_note": "跨縣市交通（手寫估計值，2026-10-12）：車程、班距、首末班依公開資訊估計，不是真正的時刻表。",
+  "transit_links": [
+    {"from": "tpe-main", "to": "kel-main", "mode": "台鐵", "line": "台鐵縱貫線", "ride": 45, "headway": 15, "first": "05:40", "last": "24:00", "both_ways": true},
+    {"from": "tyn-zhongli", "to": "hsc-main", "mode": "台鐵", "line": "台鐵縱貫線", "ride": 40, "headway": 20, "first": "05:30", "last": "23:30", "both_ways": true},
+    {"from": "hsc-main", "to": "mia-zhunan", "mode": "台鐵", "line": "台鐵縱貫線", "ride": 20, "headway": 20, "first": "05:30", "last": "23:30", "both_ways": true},
+    {"from": "mia-zhunan", "to": "txg-main", "mode": "台鐵", "line": "台鐵山線", "ride": 75, "headway": 30, "first": "05:40", "last": "22:40", "both_ways": true},
+    {"from": "tpe-main", "to": "ila-main", "mode": "台鐵", "line": "台鐵宜蘭線", "ride": 80, "headway": 30, "first": "06:00", "last": "22:30", "both_ways": true},
+    {"from": "tpe-main", "to": "ila-main", "mode": "公車", "line": "國道客運（台北—宜蘭）", "ride": 60, "headway": 15, "first": "05:30", "last": "24:00", "both_ways": true},
+    {"from": "ila-main", "to": "hua-main", "mode": "台鐵", "line": "台鐵北迴線", "ride": 75, "headway": 60, "first": "06:00", "last": "22:00", "both_ways": true},
+    {"from": "hua-main", "to": "ttt-main", "mode": "台鐵", "line": "台鐵台東線", "ride": 120, "headway": 60, "first": "06:00", "last": "21:00", "both_ways": true},
+    {"from": "hsz-hsr", "to": "hsc-main", "mode": "台鐵", "line": "台鐵六家線", "ride": 20, "headway": 30, "first": "06:00", "last": "23:30", "both_ways": true}
+  ]
+}

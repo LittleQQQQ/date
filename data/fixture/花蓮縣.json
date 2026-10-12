@@ -1,0 +1,10 @@
+{
+  "_note": "商圈與交通為手寫估計值；座標取自 OpenStreetMap（2026-10-12）。",
+  "areas": [
+    {"id": "花蓮縣/花蓮車站", "city": "花蓮縣", "name": "花蓮車站"}
+  ],
+  "stations": [
+    {"id": "hua-main", "name": "花蓮", "city": "花蓮縣", "lat": 23.99264, "lng": 121.60095, "transfer_min": 5, "is_origin": true, "area_id": "花蓮縣/花蓮車站"}
+  ],
+  "transit_links": []
+}
