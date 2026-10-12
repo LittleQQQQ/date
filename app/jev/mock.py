@@ -8,7 +8,7 @@ import difflib
 import math
 import re
 
-from .questions import AUDIO, CUISINE, DATE_FIT, MEAL_PACE, SCREEN, TITLE_MATCH, Question
+from .questions import AUDIO, CUISINE, DATE_FIT, GENRE, MEAL_PACE, SCREEN, TITLE_MATCH, Question
 
 
 def softmax(logits: list[float]) -> list[float]:
@@ -63,6 +63,22 @@ CUISINE_WORDS = {
 def cuisine(context: dict) -> list[float]:
     text = _restaurant_text(context)
     return softmax([3.0 * _count(text, CUISINE_WORDS[option]) for option in CUISINE.options])
+
+
+GENRE_WORDS = {
+    "動作": ("動作", "特務", "追逐", "爆破", "槍戰", "格鬥", "復仇", "任務", "劫"),
+    "愛情": ("愛情", "戀", "愛上", "相愛", "浪漫", "婚"),
+    "科幻": ("科幻", "太空", "未來", "外星", "時空", "機器人", "宇宙"),
+    "動畫": ("動畫", "劇場版"),
+    "喜劇": ("喜劇", "爆笑", "搞笑", "笑中帶淚", "荒謬"),
+    "劇情": ("改編", "真實故事", "人生", "家庭", "成長"),
+    "恐怖": ("恐怖", "驚悚", "鬼", "惡靈", "詛咒", "附身", "怪事"),
+}
+
+
+def genre(context: dict) -> list[float]:
+    text = f"{context.get('movie', '')} {context.get('synopsis', '')}"
+    return softmax([1.5 * _count(text, GENRE_WORDS[option]) for option in GENRE.options])
 
 
 def screen_type(context: dict) -> list[float]:
@@ -165,6 +181,7 @@ class MockJev:
         DATE_FIT.key: date_fit,
         MEAL_PACE.key: meal_pace,
         CUISINE.key: cuisine,
+        GENRE.key: genre,
         SCREEN.key: screen_type,
         AUDIO.key: audio_language,
         TITLE_MATCH.key: title_match,

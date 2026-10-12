@@ -4,8 +4,8 @@ from sqlalchemy import select
 
 from app.collectors.base import Batch, CinemaRecord, MovieRecord, RestaurantRecord, ShowtimeRecord
 from app.collectors.fixture import FixtureCollector
-from app.ingest import upsert_batch
-from app.models import Cinema, Restaurant, Showtime
+from app.ingest import precompute_jev, upsert_batch
+from app.models import Cinema, Movie, Restaurant, Showtime
 
 DAY = dt.date(2026, 10, 12)
 MOVIE = MovieRecord(external_id="M", title="片", runtime_min=100)
@@ -86,3 +86,14 @@ def test_batch_stats_are_reported(mem_session):
     _base(mem_session)
     counts = upsert_batch(mem_session, "scraper", Batch(stats={"failed_pages": 2}))
     assert counts["failed_pages"] == 2
+
+
+def test_jev_fills_missing_genre(mem_session):
+    _base(mem_session)
+    upsert_batch(mem_session, "scraper", Batch(movies=[
+        MovieRecord(external_id="H", title="鬼入室", runtime_min=95, synopsis="惡靈附身的驚悚故事，怪事不斷。"),
+        MovieRecord(external_id="N", title="週末的尼諾", runtime_min=90, synopsis="一個男孩的週末。"),
+    ]))
+    precompute_jev(mem_session)
+    genres = {m.external_id: m.genre for m in mem_session.scalars(select(Movie).where(Movie.source == "scraper"))}
+    assert genres == {"H": "恐怖", "N": ""}  # 沒把握就留空，畫面顯示「片型未知」

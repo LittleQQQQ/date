@@ -32,6 +32,9 @@ MEAL_MINUTES = {"快速": 40, "一般": 60, "慢食": 90}
 GENRES = ("動作", "愛情", "科幻", "動畫", "喜劇", "劇情", "恐怖")
 DIETS = ("不吃辣", "素食", "不吃牛")
 
+# 開眼電影網沒有片型，匯入時由 Jev 讀片名和簡介判斷
+GENRE = Question("genre", "這部電影屬於哪一種片型？", GENRES)
+
 
 def diet_question(diet: str) -> Question:
     return Question("diet_ok", f"這家餐廳能滿足「{diet}」的需求嗎？", ("可以", "不行"))

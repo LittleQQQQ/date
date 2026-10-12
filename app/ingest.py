@@ -19,9 +19,10 @@ from sqlalchemy.orm import Session
 
 from .collectors import Batch, Collector, get_collector
 from .db import Base, SessionLocal, engine, schema_message, schema_problems
-from .jev import AUDIO, CUISINE, DATE_FIT, MEAL_PACE, SCREEN, JevService
+from .config import settings
+from .jev import AUDIO, CUISINE, DATE_FIT, GENRE, MEAL_PACE, SCREEN, JevService
 from .jev.mock import normalize_title
-from .jev.service import label_subject, restaurant_context, restaurant_subject
+from .jev.service import label_subject, movie_context, movie_subject, restaurant_context, restaurant_subject
 from .models import Area, Cinema, Movie, Restaurant, ScrapeRun, Showtime, Station, TransitLink
 from .timeutil import now_tw, today_tw
 
@@ -161,7 +162,7 @@ def upsert_batch(session: Session, source: str, batch: Batch) -> dict[str, int]:
 
 
 def precompute_jev(session: Session) -> int:
-    """事先問好不會隨使用者輸入改變的題目（餐廳、場次標示），回傳實際呼叫 Jev 的次數。"""
+    """事先問好不會隨使用者輸入改變的題目（餐廳、場次標示、片型），回傳實際呼叫 Jev 的次數。"""
     jev = JevService(session)
     for r in session.scalars(select(Restaurant)):
         for question in (DATE_FIT, MEAL_PACE, CUISINE):
@@ -169,6 +170,11 @@ def precompute_jev(session: Session) -> int:
     for label in session.scalars(select(Showtime.label).distinct()):
         for question in (SCREEN, AUDIO):
             jev.ask(question, label_subject(label), {"label": label})
+    # 來源沒給片型的電影（開眼）由 Jev 判斷；沒把握就留空
+    for m in session.scalars(select(Movie).where(Movie.genre == "")):
+        answer = jev.ask(GENRE, movie_subject(m), movie_context(m))
+        if answer.confidence >= settings.jev_confidence_threshold:
+            m.genre = answer.top
     session.flush()
     return jev.calls
 
