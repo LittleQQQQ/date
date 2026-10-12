@@ -4,6 +4,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Literal
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
@@ -34,7 +35,7 @@ class Settings(BaseSettings):
 
     # 爬蟲自動更新：伺服器啟動時補抓，之後每天 refresh_hour 點再抓（測試時關掉）
     auto_refresh: bool = True
-    refresh_hour: int = 6
+    refresh_hour: int = Field(6, ge=0, le=23)
 
     @property
     def db_url(self) -> str:

@@ -90,14 +90,21 @@ class Refresher:
                 self.running = name
                 try:
                     run = run_collector(session, get_collector(name, session))
+                except Exception as exc:  # 一個來源出意外，不要讓其他來源跟著被跳過
+                    session.rollback()
+                    error = f"{type(exc).__name__}: {exc}"[:2000]
+                    log.exception("[%s] 更新發生錯誤", name)
+                else:
+                    error = None if run.status == "ok" else run.error
+                    if error is not None:
+                        log.warning("[%s] 更新失敗：%s", name, error)
                 finally:
                     self.running = None
                 ran.append(name)
-                if run.status == "ok":
+                if error is None:
                     self.last_errors.pop(name, None)
                 else:
-                    self.last_errors[name] = run.error
-                    log.warning("[%s] 更新失敗：%s", name, run.error)
+                    self.last_errors[name] = error
         return ran
 
     def status(self) -> dict:

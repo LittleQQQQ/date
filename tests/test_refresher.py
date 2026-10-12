@@ -1,6 +1,9 @@
 import contextlib
 import datetime as dt
 
+import pytest
+from pydantic import ValidationError
+
 from app.collectors.base import Batch, Collector
 from app.refresher import due_sources, next_check
 
@@ -65,3 +68,31 @@ def test_status_endpoint_reports_refresh(client):
     data = client.get("/api/status").json()
     assert data["refresh"]["running"] is None
     assert data["refresh"]["auto"] is False
+
+
+def test_an_exception_does_not_stop_the_other_sources(mem_session, monkeypatch):
+    from app import refresher as mod
+
+    def fake_get_collector(name, session):
+        if name == "osm":
+            raise KeyError("osm 壞了")
+        return BrokenAtmovies()
+
+    monkeypatch.setattr(mod, "get_collector", fake_get_collector)
+    r = mod.Refresher(session_factory=lambda: contextlib.nullcontext(mem_session), hour=6)
+
+    assert r.run_due() == ["osm", "atmovies"]
+    errors = r.status()["errors"]
+    assert errors["osm"] == "KeyError: 'osm 壞了'"
+    assert errors["atmovies"].startswith("RuntimeError: 網站掛了")
+    assert r.status()["running"] is None
+
+
+def test_refresh_hour_must_be_a_real_hour():
+    from app.config import Settings
+
+    assert Settings(refresh_hour=0).refresh_hour == 0
+    assert Settings(refresh_hour=23).refresh_hour == 23
+    for bad in (-1, 24):
+        with pytest.raises(ValidationError):
+            Settings(refresh_hour=bad)

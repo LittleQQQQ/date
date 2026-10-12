@@ -162,20 +162,25 @@ def upsert_batch(session: Session, source: str, batch: Batch) -> dict[str, int]:
 
 
 def precompute_jev(session: Session) -> int:
-    """事先問好不會隨使用者輸入改變的題目（餐廳、場次標示、片型），回傳實際呼叫 Jev 的次數。"""
+    """事先問好不會隨使用者輸入改變的題目（餐廳、場次標示、片型），回傳實際呼叫 Jev 的次數。
+
+    每問完一家餐廳、一個場次標示、一部電影就提交一次，Jev 很慢時也不會長時間鎖住資料庫，網頁的排程請求才寫得進去。
+    """
     jev = JevService(session)
-    for r in session.scalars(select(Restaurant)):
+    for r in session.scalars(select(Restaurant)).all():
         for question in (DATE_FIT, MEAL_PACE, CUISINE):
             jev.ask(question, restaurant_subject(r), restaurant_context(r))
-    for label in session.scalars(select(Showtime.label).distinct()):
+        session.commit()
+    for label in session.scalars(select(Showtime.label).distinct()).all():
         for question in (SCREEN, AUDIO):
             jev.ask(question, label_subject(label), {"label": label})
+        session.commit()
     # 來源沒給片型的電影（開眼）由 Jev 判斷；沒把握就留空
-    for m in session.scalars(select(Movie).where(Movie.genre == "")):
+    for m in session.scalars(select(Movie).where(Movie.genre == "")).all():
         answer = jev.ask(GENRE, movie_subject(m), movie_context(m))
         if answer.confidence >= settings.jev_confidence_threshold:
             m.genre = answer.top
-    session.flush()
+        session.commit()
     return jev.calls
 
 
@@ -188,6 +193,7 @@ def run_collector(
     try:
         batch = collector.collect(start or today_tw(), days)
         counts = upsert_batch(session, collector.name, batch)
+        session.commit()  # 先把抓到的資料存起來，之後 Jev 再慢也不會一直鎖住資料庫
         if judge:
             counts["jev_calls"] = precompute_jev(session)
         run.status, run.counts = "ok", counts
