@@ -62,10 +62,13 @@ py -3 -m venv .venv
 
 ## 升級後補抓資料
 
-新增商圈（例如更新 `data/fixture/`）後，伺服器重新啟動就會載入新的商圈與路網，但自動更新會以為今天已經抓過，新商圈的影城要等隔天、餐廳要等一週才會補上。升級後手動執行一次：
+新增商圈（例如更新 `data/fixture/`）後，伺服器重新啟動就會載入新的商圈與路網，但自動更新會以為今天已經抓過，新商圈的影城要等隔天、餐廳要等一週才會補上。升級後請依序執行：
 
-    python -m app.ingest --source atmovies
-    python -m app.ingest --source osm
+1. 停止伺服器（避免和自動更新同時寫入資料庫）。
+2. 匯入新商圈與路網：`python -m app.ingest`
+3. 補抓影城場次：`python -m app.ingest --source atmovies`
+4. 補抓餐廳：`python -m app.ingest --source osm`
+5. 重新啟動伺服器。
 
 ## 改用 PostgreSQL
 
@@ -179,7 +182,7 @@ app/
   refresher.py     背景自動更新
   ingest.py        匯入與 Jev 預先判斷
   models.py        資料表
-data/fixture/      示意資料（每個縣市一個檔，另有高鐵路網與片單）
+data/fixture/      示意資料（每個有商圈的縣市一個檔，另有 交通-跨縣市.json、交通-高鐵.json 與片單）
 frontend/          網頁
 db/init.sql        PostgreSQL 建立帳號與資料庫
 tests/             自動測試

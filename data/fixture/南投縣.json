@@ -4,7 +4,7 @@
     {"id": "南投縣/南投市", "city": "南投縣", "name": "南投市"}
   ],
   "stations": [
-    {"id": "nan-nantou", "name": "南投站（統聯）", "city": "南投縣", "lat": 23.90572, "lng": 120.68840, "transfer_min": 3, "is_origin": true, "area_id": "南投縣/南投市"}
+    {"id": "nan-nantou", "name": "南投（統聯）", "city": "南投縣", "lat": 23.90572, "lng": 120.68840, "transfer_min": 3, "is_origin": true, "area_id": "南投縣/南投市"}
   ],
   "transit_links": []
 }

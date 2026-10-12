@@ -5,13 +5,16 @@
 import datetime as dt
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import delete, select
 
 from app import services
 from app.collectors.coverage import load_coverage
 from app.collectors.fixture import BaseCollector
 from app.ingest import upsert_batch
-from app.models import Area, Station
+from app.models import Area, Station, TransitLink
+from app.planner import station_name
+from app.schemas import PlanRequest
+from app.timeutil import to_min
 
 DAY = dt.date(2026, 10, 12)
 
@@ -127,5 +130,86 @@ def test_every_area_has_a_station(base):
 
 
 def test_check_route_reaches_new_areas(base):
-    assert services.check_route(base, "基隆", "基隆市/基隆車站", "18:00")
+    assert services.check_route(base, "台北車站", "基隆市/基隆車站", "18:00")
     assert services.check_route(base, "馬公總站", "澎湖縣/馬公", "18:00")
+
+
+def test_area_lists_cover_every_area(base):
+    """新增商圈卻忘了加進上面的清單，路網檢查就會漏掉它。"""
+    all_areas = {a.id for a in base.scalars(select(Area))}
+    assert set(MAIN_ISLAND_AREAS) | set(ISLAND_AREAS) == all_areas
+
+
+def test_every_link_endpoint_exists(base):
+    """SQLite 不檢查外鍵，手寫路段的車站代碼打錯時不會報錯，只是路網少一段。"""
+    ids = {s.id for s in base.scalars(select(Station))}
+    for link in base.scalars(select(TransitLink)):
+        assert link.from_station_id in ids, link.line
+        assert link.to_station_id in ids, link.line
+
+
+def test_links_run_forward(base):
+    for link in base.scalars(select(TransitLink)):
+        assert to_min(link.first_train) < to_min(link.last_train), (link.from_station_id, link.to_station_id, link.line)
+
+
+@pytest.mark.parametrize("area_id", MAIN_ISLAND_AREAS)
+def test_main_island_area_timed_round_trip(base, area_id):
+    """考慮首末班車：早上 10 點從台北車站出發到得了，午夜前也有車回台北車站。"""
+    graph = services.load_graph(base)
+    stations = _area_stations(base, area_id)
+    assert any(
+        graph.earliest_arrival("tpe-main", to_min("10:00"), s) is not None
+        and graph.latest_departure(s, "tpe-main", to_min("24:00")) is not None
+        for s in stations
+    ), area_id
+
+
+def test_station_names_never_render_a_doubled_zhan(base):
+    """畫面一律在站名後面補「站」（已經有就不補）；站名本身不能讓它變成「站站」或「站（…）站」。"""
+    for station in base.scalars(select(Station)):
+        shown = station_name(station.name)
+        assert "站站" not in shown and "站（" not in shown, (station.id, shown)
+
+
+def test_island_origin_to_main_island_has_a_clear_message(base):
+    req = PlanRequest(date="2026-10-13", origin="tpe-main", area="澎湖縣/馬公")
+    with pytest.raises(ValueError, match="只能從島上出發"):
+        services.plan_date(base, req)
+    req = PlanRequest(date="2026-10-13", origin="pen-magong", area="台北市/信義")
+    with pytest.raises(ValueError, match="只能從島上出發"):
+        services.plan_date(base, req)
+
+
+def test_no_route_message_does_not_double_zhan(base):
+    """該商圈真的沒有交通資料時（這裡把基隆的路段刪掉），訊息裡的站名要正常。"""
+    base.execute(delete(TransitLink).where((TransitLink.from_station_id == "kel-main") | (TransitLink.to_station_id == "kel-main")))
+    req = PlanRequest(date="2026-10-13", origin="tpe-main", area="基隆市/基隆車站")
+    with pytest.raises(ValueError) as err:
+        services.plan_date(base, req)
+    assert "從台北市台北車站到基隆市基隆車站" in str(err.value)
+
+
+@pytest.mark.parametrize("raw, station_id", [("基隆車站", "kel-main"), ("花蓮車站", "hua-main"), ("台北車站", "tpe-main"), ("南投（統聯）站", "nan-nantou")])
+def test_resolve_station_accepts_x_chezhan(base, raw, station_id):
+    assert services.resolve_station(base, raw).id == station_id
+
+
+def test_bus_lines_start_with_the_mode(base):
+    """路線名稱沒有以「公車」開頭時，顯示會變成「公車國道客運…」。"""
+    for link in base.scalars(select(TransitLink).where(TransitLink.mode == "公車")):
+        assert link.line.startswith("公車"), link.line
+
+
+@pytest.mark.parametrize(
+    "src, dst, line",
+    [
+        ("tnn-main", "khh-zuoying", "台鐵縱貫線"),
+        ("txg-hsr", "chw-yuanlin", "台鐵縱貫線"),
+        ("tpe-main", "hua-main", "台鐵東部幹線（台北—花蓮直達）"),
+    ],
+)
+def test_cross_county_rail_follows_the_real_lines(base, src, dst, line):
+    """台南接左營（再續縱貫線到高雄）、新烏日直達員林、台北花蓮有直達車，不必繞路。"""
+    links = base.scalars(select(TransitLink).where(TransitLink.from_station_id == src, TransitLink.to_station_id == dst))
+    assert [link.line for link in links] == [line]
