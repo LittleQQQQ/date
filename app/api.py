@@ -12,6 +12,7 @@ from . import llm, services
 from .config import settings
 from .db import get_session
 from .mcp_server import mcp
+from .refresher import refresher
 from .schemas import ChatRequest, PlanRequest
 from .timeutil import today_tw
 
@@ -38,7 +39,7 @@ def get_meta(session: Session = Depends(get_session)) -> dict:
 
 @router.get("/status")
 async def get_status() -> dict:
-    return {"llm": await llm.status(), "jev": {"mode": settings.jev_mode}}
+    return {"llm": await llm.status(), "jev": {"mode": settings.jev_mode}, "refresh": refresher.status()}
 
 
 @router.post("/plan")

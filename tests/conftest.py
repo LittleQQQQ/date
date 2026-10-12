@@ -11,6 +11,7 @@ os.environ["DATABASE_URL"] = f"sqlite:///{(_TMP / 'test.db').as_posix()}"
 os.environ["JEV_MODE"] = "mock"
 os.environ["OLLAMA_URL"] = ""
 os.environ["MCP_CLIENT_URL"] = ""
+os.environ["AUTO_REFRESH"] = "false"
 
 
 @pytest.fixture(scope="session")

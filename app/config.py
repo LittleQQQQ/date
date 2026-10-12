@@ -32,6 +32,10 @@ class Settings(BaseSettings):
     # 填網址 = 走 HTTP，例如 http://127.0.0.1:8000/mcp
     mcp_client_url: str = ""
 
+    # 爬蟲自動更新：伺服器啟動時補抓，之後每天 refresh_hour 點再抓（測試時關掉）
+    auto_refresh: bool = True
+    refresh_hour: int = 6
+
     @property
     def db_url(self) -> str:
         return self.database_url.strip() or SQLITE_FALLBACK
