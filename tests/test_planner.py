@@ -73,7 +73,7 @@ def test_cross_city_uses_high_speed_rail(session, saturday):
 def test_every_area_can_be_planned_from_its_own_city(session, saturday):
     local = {
         "台北市/西門町": "台北車站", "新北市/板橋": "府中", "桃園市/青埔": "中壢",
-        "台中市/七期": "台中車站", "台南市/中西區": "永康", "高雄市/巨蛋": "左營",
+        "台中市/七期": "台中車站", "台南市/中西區": "永康", "高雄市/三多": "左營",
     }
     for area, origin in local.items():
         res = _plan(session, saturday, origin=origin, area=area, home_by="23:30")
@@ -93,7 +93,7 @@ def test_labels_tell_the_truth(session, saturday):
     cases = [
         {},
         {"origin": "台北車站", "area": "台中市/七期", "depart_after": "12:00", "home_by": "24:30"},
-        {"origin": "左營", "area": "高雄市/巨蛋"},
+        {"origin": "左營", "area": "高雄市/三多"},
     ]
     for extra in cases:
         plans = _plan(session, saturday, **extra)["plans"]
