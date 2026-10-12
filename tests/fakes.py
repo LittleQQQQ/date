@@ -20,6 +20,7 @@ class FakeFetcher:
         self.pages = pages
         self.requested: list[str] = []
         self.posts: list[dict] = []
+        self.forgotten: list[str] = []
 
     def get(self, url: str, cache_days: float = 0) -> str:
         return self._serve(url, None)
@@ -27,6 +28,9 @@ class FakeFetcher:
     def post(self, url: str, data: dict[str, str]) -> str:
         self.posts.append(data)
         return self._serve(url, data)
+
+    def forget(self, url: str) -> None:
+        self.forgotten.append(url)
 
     def _serve(self, url: str, data: dict | None) -> str:
         self.requested.append(url)

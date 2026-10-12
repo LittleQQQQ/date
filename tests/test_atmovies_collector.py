@@ -40,8 +40,9 @@ def pages():
     }
 
 
-def collect(days=2):
-    fetcher = FakeFetcher(pages())
+def collect(days=2, **overrides):
+    """overrides：網址 → 內容，蓋掉 pages() 裡同一個網址（用來模擬某一頁壞掉）。"""
+    fetcher = FakeFetcher({**pages(), **overrides})
     batch = AtmoviesCollector(COV, fetcher=fetcher, today=TODAY).collect(TODAY, days)
     return batch, fetcher
 
@@ -60,6 +61,32 @@ def test_failed_theater_keeps_old_showtimes():
     assert all(s.cinema_external_id != "t02b01" for s in batch.showtimes)
     assert batch.showtime_dates == (TODAY, TOMORROW)
     assert batch.stats["failed_pages"] == 3  # 國賓隔天的時刻表＋兩部片的電影頁
+
+
+def test_malformed_timetable_page_skips_only_that_theater():
+    bad = "<html><body><h3>2026/13/45 (二)</h3></body></html>"  # 不存在的日期
+    batch, _ = collect(**{theater_url("t02a03", "a02", TOMORROW, TODAY): bad})
+    assert [c.external_id for c in batch.cinemas] == ["t02a01"]
+    assert batch.showtime_cinemas == ["t02a01"]
+    assert all(s.cinema_external_id == "t02a01" for s in batch.showtimes) and batch.showtimes
+    assert batch.stats["failed_pages"] == 4  # 原本的 3 頁＋這一頁
+
+
+def test_timetable_page_with_wrong_date_skips_that_theater():
+    wrong_day = SAMPLES / "theater_small_20261012.html"  # 抓隔天卻拿到今天的頁面
+    batch, _ = collect(**{theater_url("t02a03", "a02", TOMORROW, TODAY): wrong_day})
+    assert [c.external_id for c in batch.cinemas] == ["t02a01"]
+    assert batch.showtime_cinemas == ["t02a01"]
+    assert batch.stats["failed_pages"] == 4
+
+
+def test_unparseable_map_page_is_skipped_and_not_cached():
+    busy = "<html>系統忙碌中，請稍後再試</html>"
+    map_url = MAP_URL.format(tid="t02a03")
+    batch, fetcher = collect(**{map_url: busy})
+    assert [c.external_id for c in batch.cinemas] == ["t02a01"]
+    assert batch.stats["failed_pages"] == 4
+    assert fetcher.forgotten == [map_url]  # 壞掉的地圖頁不能留在快取裡 30 天
 
 
 def test_showtime_fields():

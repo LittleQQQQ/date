@@ -207,10 +207,14 @@ class AtmoviesCollector(Collector):
         self, theater: TheaterLink, region: str, dates: list[dt.date], today: dt.date
     ) -> tuple[CinemaRecord, list[FilmShowing], list[ShowtimeRecord]] | None:
         """抓一家影城。不在商圈範圍、或任何一頁抓失敗就回傳 None（保留這家影城上次的場次）。"""
+        map_url = MAP_URL.format(tid=theater.tid)
+        point = None
         try:
-            point = parse_map(self.fetcher.get(MAP_URL.format(tid=theater.tid), cache_days=CACHE_DAYS))
+            point = parse_map(self.fetcher.get(map_url, cache_days=CACHE_DAYS))
+            if point is None:
+                self.fetcher.forget(map_url)  # 網站忙碌時可能回 200 的空頁面，不能讓它被快取 30 天
         except FetchError:
-            point = None
+            pass
         if point is None:
             self.failed += 1
             return None
@@ -223,7 +227,7 @@ class AtmoviesCollector(Collector):
             url = theater_url(theater.tid, region, day, today)
             try:
                 page = parse_theater_day(self.fetcher.get(url))
-            except FetchError:
+            except (FetchError, ValueError):  # 抓不到、或頁面壞掉（例如日期不存在）：只跳過這家
                 self.failed += 1
                 return None
             if page.date != day:  # 網站正在換日或頁面不對，這家這次先不更新

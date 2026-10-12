@@ -57,6 +57,11 @@ class Fetcher:
     def post(self, url: str, data: dict[str, str]) -> str:
         return self._request("POST", url, data=data)
 
+    def forget(self, url: str) -> None:
+        """丟掉這個網址的快取。抓到的頁面內容不對時用，免得壞頁面被留到快取過期。"""
+        if self.cache_dir is not None:
+            self._cache_path(url).unlink(missing_ok=True)
+
     def _request(self, method: str, url: str, **kwargs) -> str:
         last_error = ""
         for attempt in range(self.retries):

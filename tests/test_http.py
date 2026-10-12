@@ -86,6 +86,27 @@ def test_cache_avoids_second_request(tmp_path):
     assert len(calls) == 2
 
 
+def test_forget_drops_cached_page(tmp_path):
+    calls = []
+
+    def handler(req):
+        calls.append(1)
+        return httpx.Response(200, text="地圖")
+
+    fetcher, _ = make(handler, cache_dir=tmp_path, min_interval=0)
+    fetcher.get("https://a.test/map", cache_days=30)
+    fetcher.forget("https://a.test/map")
+    fetcher.get("https://a.test/map", cache_days=30)  # 快取被清掉，所以重抓
+    assert len(calls) == 2
+
+
+def test_forget_without_cache_does_nothing(tmp_path):
+    fetcher, _ = make(lambda req: httpx.Response(200, text="ok"), cache_dir=tmp_path)
+    fetcher.forget("https://a.test/never-fetched")  # 沒快取過
+    fetcher, _ = make(lambda req: httpx.Response(200, text="ok"), cache_dir=None)
+    fetcher.forget("https://a.test/x")  # 沒開快取
+
+
 def test_post_sends_form_data():
     seen = {}
 
