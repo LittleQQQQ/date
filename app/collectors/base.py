@@ -108,6 +108,8 @@ class ShowtimeRecord(BaseModel):
     label: str
     price: int
     source_url: str = ""
+    # 哪些欄位是估計的，例如 ["price"]（網站沒有票價，依版本估）
+    estimated: list[str] = Field(default_factory=list)
 
 
 class RestaurantRecord(BaseModel):
@@ -125,6 +127,8 @@ class RestaurantRecord(BaseModel):
     typical_wait_min: int = 10
     reservable: bool = False
     source_url: str = ""
+    # 哪些欄位是估計的，例如 ["hours", "price"]
+    estimated: list[str] = Field(default_factory=list)
 
     @field_validator("hours")
     @classmethod
@@ -150,10 +154,22 @@ class Batch(BaseModel):
     restaurants: list[RestaurantRecord] = Field(default_factory=list)
     # 這次抓取涵蓋的場次日期（含頭尾）。範圍內同一來源的舊場次會被整批取代，已取消的場次就會消失
     showtime_dates: tuple[dt.date, dt.date] | None = None
+    # 有值時，只替換這些影城（external_id）的場次；抓失敗的影城不列入，保留上次的場次
+    showtime_cinemas: list[str] | None = None
+    # 有值時，這些商圈裡這次沒出現的同來源餐廳會被移除（店收了）；抓失敗的商圈不列入
+    restaurant_areas: list[str] | None = None
+    # 額外的統計（例如失敗頁數），會寫進 scrape_runs.counts
+    stats: dict[str, int] = Field(default_factory=dict)
+
+
+class ScrapeError(Exception):
+    """整批抓取失敗（例如網站改版、全部請求都失敗）；資料庫保留舊資料。"""
 
 
 class Collector(ABC):
     name: str = ""  # 也會寫進資料表的 source 欄位
+    # True：建立時要傳入 coverage（資料庫裡的商圈與車站），由 get_collector 準備
+    needs_coverage: bool = False
 
     @abstractmethod
     def collect(self, start: dt.date, days: int) -> Batch:

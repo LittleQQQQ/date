@@ -159,3 +159,41 @@ def test_unknown_origin_is_an_error(session, saturday):
 
     with pytest.raises(ValueError, match="找不到出發站"):
         _plan(session, saturday, origin="火星")
+
+
+def test_estimate_notes():
+    from types import SimpleNamespace as NS
+
+    from app.planner import _estimate_notes
+
+    assert _estimate_notes(NS(estimated=["price"]), NS(estimated=["hours", "price"])) == [
+        "票價為估計", "營業時間為估計，出發前請先確認", "價位為估計",
+    ]
+    assert _estimate_notes(NS(estimated=[]), NS(estimated=[])) == []
+
+
+def test_plans_carry_estimates(session, saturday):
+    res = _plan(session, saturday)
+    assert res["plans"]
+    for p in res["plans"]:
+        assert p["estimates"] == []  # 示意資料沒有估計欄位
+        assert p["movie"]["estimated"] == [] and p["restaurant"]["estimated"] == []
+
+
+def test_showtimes_outside_the_window_are_skipped_early(session, saturday):
+    res = _plan(session, saturday, depart_after="18:00", home_by="22:30")
+    reasons = {r["reason"]: r["count"] for r in res["rejections"]}
+    assert reasons.get("場次時間落在出門到回家的時間之外", 0) > 0
+    for p in res["plans"]:
+        assert _clock(p["movie"]["start"]) >= to_min("18:10")
+
+
+def test_fits_window():
+    from types import SimpleNamespace as NS
+
+    from app.planner import _fits_window
+
+    req = PlanRequest(date="2026-10-17", depart_after="18:00", home_by="22:30")
+    assert _fits_window(req, NS(start=to_min("18:10"), runtime_min=100))  # 18:10 開演、20:02 散場
+    assert not _fits_window(req, NS(start=to_min("18:05"), runtime_min=100))  # 要 17:55 到影城
+    assert not _fits_window(req, NS(start=to_min("21:00"), runtime_min=100))  # 22:52 才散場

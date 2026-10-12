@@ -14,7 +14,8 @@ class Base(DeclarativeBase):
 
 def _make_engine(url: str):
     if url.startswith("sqlite"):
-        return create_engine(url, connect_args={"check_same_thread": False})
+        # 背景更新和網頁請求可能同時寫入，等鎖最多 30 秒
+        return create_engine(url, connect_args={"check_same_thread": False, "timeout": 30})
     return create_engine(url, pool_pre_ping=True)
 
 
@@ -44,5 +45,5 @@ def schema_problems() -> list[str]:
 def schema_message(problems: list[str]) -> str:
     return (
         "資料庫的資料表結構是舊版的：\n  " + "\n  ".join(problems) + "\n"
-        "請執行 python -m app.ingest --reset 重建（會清空資料庫裡的資料，再重新匯入示意資料）。"
+        "請執行 python -m app.ingest --reset 重建（會清空資料庫裡的資料，再重新匯入商圈與交通；影城、場次、餐廳會在伺服器啟動時重新抓）。"
     )

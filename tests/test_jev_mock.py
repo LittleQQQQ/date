@@ -61,3 +61,13 @@ def test_override_replaces_guess():
     fixed = ans.apply_override({"date_fit:restaurant:1": "適合約會"})
     assert fixed.top == "適合約會" and fixed.overridden and fixed.confident(0.99)
     assert ans.apply_override({"date_fit:restaurant:1": "亂填"}) is ans
+
+
+def test_genre_from_title_and_synopsis():
+    from app.jev.mock import genre
+    from app.jev.questions import GENRE
+
+    horror = genre({"movie": "鬼入室", "synopsis": "搬進新家後怪事不斷，惡靈附身的驚悚故事。"})
+    assert _top(GENRE, horror)[0] == "恐怖" and max(horror) > 0.6
+    unknown = genre({"movie": "週末的尼諾", "synopsis": "一個男孩的週末。"})
+    assert max(unknown) < 0.6

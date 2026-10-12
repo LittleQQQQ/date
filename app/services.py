@@ -143,6 +143,7 @@ def build_context(session: Session, req: PlanRequest, jev: JevService) -> tuple[
                 title_match=title_match,
                 genre=movie.genre,
                 synopsis=movie.synopsis,
+                estimated=list(st.estimated or []),
             )
         )
 
@@ -173,6 +174,7 @@ def build_context(session: Session, req: PlanRequest, jev: JevService) -> tuple[
                     if diet
                     else None
                 ),
+                estimated=list(r.estimated or []),
             )
         )
 
@@ -223,6 +225,7 @@ def search_showtimes(session: Session, date: dt.date, area: str = "台北市/信
             "runtime_min": movie.runtime_min if movie else None,
             "screen": jev.ask(SCREEN, label_subject(st.label), {"label": st.label}).top,
             "audio": jev.ask(AUDIO, label_subject(st.label), {"label": st.label}).top,
+            "estimated": list(st.estimated or []),
         }
         if movie_query:
             match = jev.ask(TITLE_MATCH, title_subject(st.raw_title, movie_query), {"query": movie_query, "title": st.raw_title})
@@ -262,6 +265,7 @@ def find_restaurants(
             "pace": jev.ask(MEAL_PACE, subject, context).top,
             "date_fit": fit.top,
             "date_fit_confidence": round(fit.confidence, 2),
+            "estimated": list(r.estimated or []),
         }
         if open_at:
             t = to_min(open_at)
@@ -294,16 +298,26 @@ def check_route(session: Session, origin: str, area: str = "台北市/信義", d
     return out
 
 
+SOURCE_LABELS = {"atmovies": "開眼", "osm": "OSM", "base": "商圈與交通", "fixture": "示意資料"}
+
+
 def data_status(session: Session) -> dict:
     runs = session.scalars(select(ScrapeRun).where(ScrapeRun.status == "ok").order_by(ScrapeRun.finished_at.desc())).all()
     latest: dict[str, ScrapeRun] = {}
     for run in runs:
         latest.setdefault(run.source, run)
     sources = [
-        {"source": run.source, "finished_at": run.finished_at.strftime("%Y-%m-%d %H:%M") if run.finished_at else None}
+        {
+            "source": run.source,
+            "label": SOURCE_LABELS.get(run.source, run.source),
+            "finished_at": run.finished_at.strftime("%Y-%m-%d %H:%M") if run.finished_at else None,
+        }
         for run in latest.values()
     ]
-    return {"sources": sources, "is_demo": "fixture" in latest}
+    has_showtimes = bool(
+        session.scalar(select(func.count()).select_from(Showtime).where(Showtime.date >= today_tw().isoformat()))
+    )
+    return {"sources": sources, "is_demo": "fixture" in latest, "has_showtimes": has_showtimes}
 
 
 def available_dates(session: Session) -> dict[str, list[dict]]:

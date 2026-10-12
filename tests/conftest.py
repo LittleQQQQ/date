@@ -11,15 +11,21 @@ os.environ["DATABASE_URL"] = f"sqlite:///{(_TMP / 'test.db').as_posix()}"
 os.environ["JEV_MODE"] = "mock"
 os.environ["OLLAMA_URL"] = ""
 os.environ["MCP_CLIENT_URL"] = ""
+os.environ["AUTO_REFRESH"] = "false"
 
 
 @pytest.fixture(scope="session")
 def client():
     from fastapi.testclient import TestClient
 
+    from app.collectors import get_collector
+    from app.db import SessionLocal
+    from app.ingest import run_collector
     from app.main import app
 
-    with TestClient(app) as c:  # 啟動時會自動匯入示意資料
+    with TestClient(app) as c:  # 啟動時只匯入商圈與交通（base）
+        with SessionLocal() as s:
+            run_collector(s, get_collector("fixture"))  # 測試用的虛構影城、餐廳、場次
         yield c
 
 
@@ -37,3 +43,20 @@ def saturday():
 
     today = today_tw()
     return today + dt.timedelta(days=(5 - today.weekday()) % 7)
+
+
+@pytest.fixture
+def mem_session():
+    """獨立的記憶體資料庫，給匯入相關的測試用，不影響其他測試共用的示意資料。"""
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import Session
+    from sqlalchemy.pool import StaticPool
+
+    from app import models  # noqa: F401  註冊資料表
+    from app.db import Base
+
+    engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+    Base.metadata.create_all(engine)
+    with Session(engine, expire_on_commit=False) as s:
+        yield s
+    engine.dispose()

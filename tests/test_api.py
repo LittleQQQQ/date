@@ -13,6 +13,8 @@ def test_meta(client):
     assert "新片 A" in data["movies"]
     assert data["data"]["is_demo"]
     assert "愛情" in data["options"]["genres"] and "素食" in data["options"]["diets"]
+    assert data["data"]["has_showtimes"]
+    assert {s["label"] for s in data["data"]["sources"]} >= {"示意資料", "商圈與交通"}
 
 
 def test_meta_lists_all_22_cities(client):

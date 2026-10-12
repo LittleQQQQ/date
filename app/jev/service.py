@@ -11,7 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..config import settings
-from ..models import JevJudgment, Restaurant
+from ..models import JevJudgment, Movie, Restaurant
 from ..timeutil import now_tw
 from .api_client import JevApiClient
 from .mock import MockJev, normalize_title
@@ -36,6 +36,7 @@ _CONTEXT_LABELS = {
     "name": "名稱",
     "description": "介紹",
     "reviews": "評論",
+    "synopsis": "簡介",
     "label": "場次標示",
     "query": "使用者想看",
     "title": "場次片名",
@@ -66,6 +67,14 @@ def restaurant_subject(r: Restaurant) -> str:
 
 def restaurant_context(r: Restaurant) -> dict:
     return {"name": r.name, "description": r.description, "reviews": list(r.reviews or [])}
+
+
+def movie_subject(m: Movie) -> str:
+    return f"movie:{m.id}"
+
+
+def movie_context(m: Movie) -> dict:
+    return {"movie": m.title, "synopsis": m.synopsis}
 
 
 def label_subject(label: str) -> str:

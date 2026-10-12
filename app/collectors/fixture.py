@@ -1,7 +1,9 @@
-"""示意資料來源：讀 data/fixture/ 底下的所有 JSON（每個縣市一個檔），場次依範本產生指定日期範圍。
+"""示意資料：讀 data/fixture/ 底下的所有 JSON（每個縣市一個檔）。
 
-影城、餐廳、場次都是虛構的；捷運、台鐵、高鐵、公車的車程與班次是估計值，只用來展示流程。
+- base：只有商圈、車站、交通路段，正式執行時用；影城、電影、場次、餐廳由爬蟲提供。
+- fixture：完整的虛構資料（含影城、餐廳、場次範本），給自動測試用。
 
+捷運、台鐵、高鐵、公車的車程與班次是估計值。
 交通路段在 JSON 裡可以寫 "both_ways": true，代表反方向也有一樣的路段（末班車可用 last_back 另外指定）。
 """
 from __future__ import annotations
@@ -90,4 +92,18 @@ class FixtureCollector(Collector):
             restaurants=[RestaurantRecord(**r) for r in data["restaurants"]],
             showtimes=showtimes,
             showtime_dates=(start, start + dt.timedelta(days=days - 1)),
+        )
+
+
+class BaseCollector(FixtureCollector):
+    """只匯入商圈、車站、交通路段。"""
+
+    name = "base"
+
+    def collect(self, start: dt.date, days: int) -> Batch:
+        data = self._load()
+        return Batch(
+            areas=[AreaRecord(**a) for a in data["areas"]],
+            stations=[StationRecord(**s) for s in data["stations"]],
+            transit_links=[link for item in data["transit_links"] for link in _links(item)],
         )

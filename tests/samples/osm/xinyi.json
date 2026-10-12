@@ -1,0 +1,20 @@
+{
+  "version": 0.6,
+  "generator": "Overpass API（測試樣本）",
+  "elements": [
+    {"type": "node", "id": 1001, "lat": 25.0372, "lon": 121.5679,
+     "tags": {"amenity": "restaurant", "name": "一蘭拉麵", "cuisine": "japanese;ramen", "opening_hours": "24/7"}},
+    {"type": "node", "id": 1002, "lat": 25.0345, "lon": 121.5655,
+     "tags": {"amenity": "cafe", "name": "森林咖啡"}},
+    {"type": "node", "id": 1003, "lat": 25.0410, "lon": 121.5690,
+     "tags": {"amenity": "bar", "name": "夜貓酒吧", "opening_hours": "Mo-Su 18:00-02:00"}},
+    {"type": "way", "id": 2001, "center": {"lat": 25.0398, "lon": 121.5683},
+     "tags": {"amenity": "restaurant", "name": "湯旅麻辣鍋", "cuisine": "hot_pot", "opening_hours": "sunrise-sunset", "reservation": "yes"}},
+    {"type": "node", "id": 1004, "lat": 25.0400, "lon": 121.5640,
+     "tags": {"amenity": "fast_food"}},
+    {"type": "node", "id": 1005, "lat": 25.0420, "lon": 121.5080,
+     "tags": {"amenity": "restaurant", "name": "西門小館"}},
+    {"type": "node", "id": 1001, "lat": 25.0372, "lon": 121.5679,
+     "tags": {"amenity": "restaurant", "name": "一蘭拉麵", "cuisine": "japanese;ramen", "opening_hours": "24/7"}}
+  ]
+}

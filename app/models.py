@@ -113,6 +113,7 @@ class Showtime(Base):
     label: Mapped[str] = mapped_column(String(50))  # 原始場次標示，例如「IMAX 2D 英語」
     price: Mapped[int] = mapped_column(Integer)
     source_url: Mapped[str] = mapped_column(String(500), default="")
+    estimated: Mapped[list] = mapped_column(JSON, default=list)  # 估計的欄位，例如 ["price"]
     fetched_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
 
@@ -137,6 +138,7 @@ class Restaurant(Base):
     typical_wait_min: Mapped[int] = mapped_column(Integer)  # 一般時段的候位分鐘數
     reservable: Mapped[bool] = mapped_column(Boolean, default=False)
     source_url: Mapped[str] = mapped_column(String(500), default="")
+    estimated: Mapped[list] = mapped_column(JSON, default=list)  # 估計的欄位，例如 ["hours", "price"]
     fetched_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
 

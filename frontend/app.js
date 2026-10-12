@@ -170,22 +170,78 @@ function validate(req) {
 
 // ---------- 狀態列 ----------
 
-function renderStatus(meta, llm) {
+const SOURCE_NAMES = { atmovies: "開眼", osm: "OSM" };
+
+function shortTime(text) {
+  // "2026-10-12 06:01" → "10/12 06:01"
+  const [day, time] = String(text ?? "").split(" ");
+  const [, month, date] = day.split("-");
+  return month ? `${Number(month)}/${Number(date)} ${time}` : "";
+}
+
+function dataChip(meta, refresh) {
+  if (refresh?.running) {
+    return `<span class="dot"></span>資料更新中…（${esc(SOURCE_NAMES[refresh.running] ?? refresh.running)}）`;
+  }
+  if (meta.data.is_demo) return "資料：示意資料";
+  const parts = meta.data.sources
+    .filter((s) => s.source in SOURCE_NAMES)
+    .map((s) => `${esc(s.label)} ${esc(shortTime(s.finished_at))}`);
+  return parts.length ? `資料：${parts.join("・")}` : "資料：尚未抓取";
+}
+
+function renderStatus(meta, status) {
+  const llm = status?.llm;
   const llmChip = llm === undefined
     ? `<span class="dot"></span>LLM ${esc(meta.llm.model)}：檢查中`
     : llm.available && llm.model_installed
       ? `<span class="dot on"></span>LLM ${esc(llm.model)}：已連線`
       : `<span class="dot off"></span>LLM ${esc(meta.llm.model)}：${llm.available ? "未安裝模型" : "未連線"}（摘要改用範本）`;
   const jev = meta.jev.mode === "api" ? "Jev：API" : "Jev：模擬模式";
-  const data = meta.data.is_demo ? "資料：示意資料" : "資料：爬蟲";
   $("#status").innerHTML = [
     `<li class="chip"><span class="dot on"></span>${jev}</li>`,
     `<li class="chip">${llmChip}</li>`,
-    `<li class="chip">${data}</li>`,
+    `<li class="chip">${dataChip(meta, status?.refresh)}</li>`,
   ].join("");
-  const updated = meta.data.sources.map((s) => `${esc(s.source)} 更新於 ${esc(s.finished_at)}`).join("；");
   const counts = `目前有 ${meta.areas.length} 個商圈、${meta.counts.cinemas} 家影城、${meta.counts.restaurants} 家餐廳的資料。`;
-  $("#foot").innerHTML = `${counts}${updated ? `${updated}。` : ""}影城、餐廳、場次與交通班次目前為示意資料，僅供展示流程。`;
+  const credit = meta.data.is_demo
+    ? "影城、餐廳、場次與交通班次目前為示意資料，僅供展示流程。"
+    : "電影與場次：開眼電影網・餐廳：© OpenStreetMap 貢獻者（ODbL）・交通：估計值。";
+  $("#foot").innerHTML = `${counts}${credit}`;
+}
+
+// ---------- 第一次啟動：等爬蟲抓完 ----------
+
+function renderWaiting(refresh) {
+  const what = refresh.running === "atmovies" ? "正在抓取影城場次（第一次約 10 分鐘）" : "正在抓取餐廳資料（約 3～6 分鐘）";
+  $("#results").innerHTML = `<section class="card summary"><p class="loading">第一次啟動，${what}，完成後會自動載入。</p></section>`;
+}
+
+function renderNoData(refresh) {
+  const errors = Object.entries(refresh?.errors ?? {}).map(([s, e]) => `${SOURCE_NAMES[s] ?? s}：${e}`);
+  const detail = errors.length ? `抓取失敗（${errors.join("；")}）。` : "";
+  $("#results").innerHTML = `<section class="card summary"><p>目前還沒有場次資料。${esc(detail)}伺服器每天早上會自動再抓一次，也可以手動執行 python -m app.ingest --source atmovies。</p></section>`;
+}
+
+function watchRefresh(status) {
+  // 還沒有場次時：正在抓就每 10 秒檢查一次，抓完重新載入；沒在抓就說明原因
+  if (state.meta.data.has_showtimes) return;
+  if (!status?.refresh?.running) {
+    renderNoData(status?.refresh);
+    return;
+  }
+  renderWaiting(status.refresh);
+  const timer = setInterval(async () => {
+    const s = await api("/api/status").catch(() => null);
+    if (!s) return;
+    renderStatus(state.meta, s);
+    if (s.refresh.running) {
+      renderWaiting(s.refresh);
+    } else {
+      clearInterval(timer);
+      location.reload();
+    }
+  }, 10000);
 }
 
 // ---------- 結果 ----------
@@ -275,6 +331,9 @@ function renderPlan(p) {
     </li>`).join("");
   const flags = p.flags.length ? `<ul class="flags">${p.flags.map((f) => `<li>${esc(f)}</li>`).join("")}</ul>` : "";
   const tips = p.tips.length ? `<p class="tips">${p.tips.map(esc).join("；")}</p>` : "";
+  const estimates = p.estimates?.length
+    ? `<ul class="flags">${p.estimates.map((e) => `<li>${esc(e)}</li>`).join("")}</ul>`
+    : "";
   return `
     <article class="card plan">
       <header>
@@ -290,7 +349,7 @@ function renderPlan(p) {
         <div><dt>每人</dt><dd>$${p.cost_per_person.toLocaleString()}</dd></div>
         <div><dt>最緊緩衝</dt><dd>${p.tightest_buffer_min} 分</dd></div>
       </dl>
-      ${flags}
+      ${flags}${estimates}
       <ol class="timeline">${steps}</ol>
       ${tips}
       ${renderJev(p)}
@@ -371,7 +430,12 @@ async function init() {
   }
   setupForm(state.meta);
   renderStatus(state.meta);
-  api("/api/status").then((s) => renderStatus(state.meta, s.llm)).catch(() => renderStatus(state.meta, { available: false }));
+  api("/api/status")
+    .then((s) => {
+      renderStatus(state.meta, s);
+      watchRefresh(s);
+    })
+    .catch(() => renderStatus(state.meta, { llm: { available: false } }));
 
   const form = $("#plan-form");
   form.city.addEventListener("change", onCityChange);
