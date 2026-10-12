@@ -1,8 +1,10 @@
 """匯入：執行一個資料來源，把結果寫進資料庫，再讓 Jev 預先判斷新資料或有變動的資料。
 
 用法：
-    python -m app.ingest                      # 預設：示意資料，今天起 14 天的場次
-    python -m app.ingest --source fixture --days 7
+    python -m app.ingest                      # 預設：商圈與交通（base）
+    python -m app.ingest --source atmovies    # 開眼電影網：影城、電影、場次
+    python -m app.ingest --source osm         # OpenStreetMap：餐廳
+    python -m app.ingest --source fixture     # 完整的虛構示意資料（測試用）
     python -m app.ingest --no-jev             # 只匯入，不跑 Jev
     python -m app.ingest --reset              # 資料表結構改過時用：清空並重建所有資料表後再匯入
 """
@@ -12,7 +14,7 @@ import argparse
 import datetime as dt
 from typing import TypeVar
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from .collectors import Batch, Collector, get_collector
@@ -192,19 +194,29 @@ def run_collector(
     return run
 
 
-def ensure_demo_data(session: Session) -> ScrapeRun | None:
-    """伺服器啟動時呼叫：資料庫裡沒有今天以後的場次，就用示意資料補上。"""
-    has_future = session.scalar(
-        select(func.count()).select_from(Showtime).where(Showtime.date >= today_tw().isoformat())
-    )
-    if has_future:
-        return None
-    return run_collector(session, get_collector("fixture"))
+DEMO_SOURCE = "fixture"
+
+
+def remove_demo_content(session: Session) -> int:
+    """刪掉示意資料裡虛構的場次、餐廳、影城、電影（商圈與交通保留），回傳刪掉的筆數。"""
+    removed = 0
+    for model in (Showtime, Restaurant, Cinema, Movie):  # 場次先刪，它參照影城與電影
+        removed += session.execute(delete(model).where(model.source == DEMO_SOURCE)).rowcount
+    session.execute(delete(ScrapeRun).where(ScrapeRun.source == DEMO_SOURCE))
+    session.commit()
+    return removed
+
+
+def ensure_base_data(session: Session) -> ScrapeRun:
+    """伺服器啟動時呼叫：匯入商圈與交通（base），並清掉之前匯入的虛構內容。"""
+    run = run_collector(session, get_collector("base"), judge=False)
+    remove_demo_content(session)
+    return run
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="執行資料來源並匯入資料庫")
-    parser.add_argument("--source", default="fixture", help="資料來源名稱（見 app/collectors/__init__.py）")
+    parser.add_argument("--source", default="base", help="資料來源名稱（見 app/collectors/__init__.py）")
     parser.add_argument("--days", type=int, default=14, help="抓幾天的場次")
     parser.add_argument("--no-jev", action="store_true", help="只匯入，不跑 Jev 預先判斷")
     parser.add_argument("--reset", action="store_true", help="清空並重建所有資料表（會刪除現有資料）")

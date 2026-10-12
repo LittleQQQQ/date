@@ -17,9 +17,14 @@ os.environ["MCP_CLIENT_URL"] = ""
 def client():
     from fastapi.testclient import TestClient
 
+    from app.collectors import get_collector
+    from app.db import SessionLocal
+    from app.ingest import run_collector
     from app.main import app
 
-    with TestClient(app) as c:  # 啟動時會自動匯入示意資料
+    with TestClient(app) as c:  # 啟動時只匯入商圈與交通（base）
+        with SessionLocal() as s:
+            run_collector(s, get_collector("fixture"))  # 測試用的虛構影城、餐廳、場次
         yield c
 
 

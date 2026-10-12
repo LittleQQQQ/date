@@ -4,10 +4,11 @@ from sqlalchemy.orm import Session
 
 from .base import Batch, Collector
 from .coverage import Coverage, load_coverage
-from .fixture import FixtureCollector
+from .fixture import BaseCollector, FixtureCollector
 
 # 資料來源登記表：新增爬蟲後在這裡加一行
 COLLECTORS: dict[str, type[Collector]] = {
+    BaseCollector.name: BaseCollector,
     FixtureCollector.name: FixtureCollector,
 }
 
