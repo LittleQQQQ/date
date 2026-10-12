@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from sqlalchemy.orm import Session
 
+from .atmovies import AtmoviesCollector
 from .base import Batch, Collector
 from .coverage import Coverage, load_coverage
 from .fixture import BaseCollector, FixtureCollector
@@ -10,6 +11,7 @@ from .fixture import BaseCollector, FixtureCollector
 COLLECTORS: dict[str, type[Collector]] = {
     BaseCollector.name: BaseCollector,
     FixtureCollector.name: FixtureCollector,
+    AtmoviesCollector.name: AtmoviesCollector,
 }
 
 

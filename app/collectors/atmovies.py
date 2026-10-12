@@ -15,6 +15,11 @@ from dataclasses import dataclass, field
 
 from bs4 import BeautifulSoup, Comment
 
+from ..timeutil import today_tw
+from .base import Batch, CinemaRecord, Collector, MovieRecord, ScrapeError, ShowtimeRecord
+from .coverage import Coverage
+from .http import Fetcher, FetchError
+
 BASE_URL = "https://www.atmovies.com.tw"
 MAP_URL = "http://ww2.atmovies.com.tw/movie/GMap2018.cfm?tid={tid}"
 SITE_DAYS = 4  # 網站提供今天起幾天的時刻表
@@ -152,3 +157,110 @@ def parse_synopsis(html: str) -> str:
 
 def price_for(label: str) -> int:
     return PRICE_PREMIUM if any(w in label.upper() for w in PREMIUM_WORDS) else PRICE_NORMAL
+
+class AtmoviesCollector(Collector):
+    name = "atmovies"
+    needs_coverage = True
+
+    def __init__(self, coverage: Coverage, fetcher: Fetcher | None = None, today: dt.date | None = None):
+        self.coverage = coverage
+        self.fetcher = fetcher or Fetcher()
+        self.today = today
+
+    def collect(self, start: dt.date, days: int) -> Batch:
+        today = self.today or today_tw()
+        last_site_day = today + dt.timedelta(days=SITE_DAYS - 1)
+        dates = [d for d in (start + dt.timedelta(days=i) for i in range(days)) if today <= d <= last_site_day]
+        regions = sorted({REGION_BY_CITY[c] for c in self.coverage.cities() if c in REGION_BY_CITY})
+        if not dates or not regions:
+            return Batch()
+
+        self.failed = self.skipped = 0
+        cinemas: list[CinemaRecord] = []
+        films: dict[str, FilmShowing] = {}  # 電影編號 → 第一次看到的片名、片長
+        showtimes: list[ShowtimeRecord] = []
+        for region in regions:
+            theaters = parse_region(self.fetcher.get(region_url(region)), region)
+            if not theaters:
+                raise ScrapeError(f"開眼地區頁 {region} 解析不到影城，網站可能改版了")
+            for theater in theaters:
+                result = self._theater(theater, region, dates, today)
+                if result is None:
+                    continue
+                cinema, theater_films, theater_showtimes = result
+                cinemas.append(cinema)
+                for film in theater_films:
+                    films.setdefault(film.movie_id, film)
+                showtimes += theater_showtimes
+
+        movies = [self._movie(film) for film in films.values()]
+        return Batch(
+            cinemas=cinemas,
+            movies=movies,
+            showtimes=showtimes,
+            showtime_dates=(dates[0], dates[-1]),
+            showtime_cinemas=[c.external_id for c in cinemas],
+            stats={"failed_pages": self.failed, "showtimes_skipped_no_runtime": self.skipped},
+        )
+
+    def _theater(
+        self, theater: TheaterLink, region: str, dates: list[dt.date], today: dt.date
+    ) -> tuple[CinemaRecord, list[FilmShowing], list[ShowtimeRecord]] | None:
+        """抓一家影城。不在商圈範圍、或任何一頁抓失敗就回傳 None（保留這家影城上次的場次）。"""
+        try:
+            point = parse_map(self.fetcher.get(MAP_URL.format(tid=theater.tid), cache_days=CACHE_DAYS))
+        except FetchError:
+            point = None
+        if point is None:
+            self.failed += 1
+            return None
+        area = self.coverage.area_for(*point)
+        if area is None:
+            return None
+
+        pages = []
+        for day in dates:
+            url = theater_url(theater.tid, region, day, today)
+            try:
+                page = parse_theater_day(self.fetcher.get(url))
+            except FetchError:
+                self.failed += 1
+                return None
+            if page.date != day:  # 網站正在換日或頁面不對，這家這次先不更新
+                self.failed += 1
+                return None
+            pages.append((day, url, page))
+
+        cinema = CinemaRecord(
+            external_id=theater.tid, name=theater.name, area_id=area, address=pages[0][2].address,
+            lat=point[0], lng=point[1], source_url=theater_url(theater.tid, region, today, today),
+        )
+        films: list[FilmShowing] = []
+        showtimes: dict[str, ShowtimeRecord] = {}
+        for day, url, page in pages:
+            for film in page.films:
+                if film.runtime_min is None:
+                    self.skipped += len(film.times)
+                    continue
+                films.append(film)
+                label = film.version or DEFAULT_LABEL
+                for start in film.times:
+                    eid = f"{theater.tid}|{film.movie_id}|{label}|{day.isoformat()}|{start}"
+                    showtimes[eid] = ShowtimeRecord(
+                        external_id=eid, cinema_external_id=theater.tid, movie_external_id=film.movie_id,
+                        raw_title=film.title, date=day, start=start, label=label, price=price_for(label),
+                        source_url=url, estimated=["price"],
+                    )
+        return cinema, films, list(showtimes.values())
+
+    def _movie(self, film: FilmShowing) -> MovieRecord:
+        url = movie_url(film.movie_id)
+        try:
+            synopsis = parse_synopsis(self.fetcher.get(url, cache_days=CACHE_DAYS))
+        except FetchError:
+            self.failed += 1
+            synopsis = ""
+        return MovieRecord(
+            external_id=film.movie_id, title=film.title, runtime_min=film.runtime_min,
+            synopsis=synopsis, source_url=url,
+        )

@@ -162,6 +162,10 @@ class Batch(BaseModel):
     stats: dict[str, int] = Field(default_factory=dict)
 
 
+class ScrapeError(Exception):
+    """整批抓取失敗（例如網站改版、全部請求都失敗）；資料庫保留舊資料。"""
+
+
 class Collector(ABC):
     name: str = ""  # 也會寫進資料表的 source 欄位
     # True：建立時要傳入 coverage（資料庫裡的商圈與車站），由 get_collector 準備
