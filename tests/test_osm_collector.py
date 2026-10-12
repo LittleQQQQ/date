@@ -78,3 +78,28 @@ def test_run_osm_into_database(mem_session):
     assert run.status == "ok", run.error
     rows = mem_session.scalars(select(Restaurant).where(Restaurant.source == "osm")).all()
     assert len(rows) == 4 and all(r.area_id == "台北市/信義" for r in rows)
+
+
+RUNTIME_ERROR = json.dumps({"elements": [], "remark": 'runtime error: Query timed out in "query" at line 3 after 61 seconds.'})
+
+
+@pytest.mark.parametrize("bad", [RUNTIME_ERROR, "<html>busy</html>", "[]", "null"], ids=["runtime_error", "not_json", "list", "null"])
+def test_unusable_answer_counts_as_a_failed_area(bad):
+    fetcher = FakeFetcher({OVERPASS_URL: [bad, SAMPLES / "xinyi.json"]})  # 信義失敗，西門町正常
+    batch = OsmCollector(COV, fetcher=fetcher).collect(TODAY, 1)
+    assert batch.restaurant_areas == ["台北市/西門町"]
+    assert batch.stats["failed_areas"] == 1
+    assert [r.external_id for r in batch.restaurants] == ["node/1005"]
+
+
+def test_runtime_error_keeps_the_old_restaurants(mem_session):
+    run_collector(mem_session, BaseCollector(), judge=False)
+    xinyi = (SAMPLES / "xinyi.json").read_text(encoding="utf-8")
+    first = FakeFetcher({OVERPASS_URL: lambda data: xinyi if "25.041000,121.565500" in data["data"] else EMPTY})
+    run_collector(mem_session, OsmCollector(load_coverage(mem_session), fetcher=first))
+    # 第二次信義的查詢逾時（HTTP 200 但帶執行錯誤），不能把信義既有的店當成歇業刪掉
+    second = FakeFetcher({OVERPASS_URL: lambda data: RUNTIME_ERROR if "25.041000,121.565500" in data["data"] else EMPTY})
+    run = run_collector(mem_session, OsmCollector(load_coverage(mem_session), fetcher=second))
+    assert run.status == "ok", run.error
+    rows = mem_session.scalars(select(Restaurant).where(Restaurant.source == "osm")).all()
+    assert len(rows) == 4 and all(r.area_id == "台北市/信義" for r in rows)

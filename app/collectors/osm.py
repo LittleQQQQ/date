@@ -265,16 +265,30 @@ class OsmCollector(Collector):
         done: list[str] = []
         failed = 0
         for area in self.coverage.areas:
-            try:
-                data = json.loads(self.fetcher.post(OVERPASS_URL, {"data": overpass_query(area.stations)}))
-            except (FetchError, ValueError):
+            elements = self._query(area)
+            if elements is None:
                 failed += 1
                 continue
-            restaurants += self._pick(area, data.get("elements", []))
+            restaurants += self._pick(area, elements)
             done.append(area.id)
         if self.coverage.areas and not done:
             raise ScrapeError("Overpass API 所有商圈都查詢失敗")
         return Batch(restaurants=restaurants, restaurant_areas=done, stats={"failed_areas": failed})
+
+    def _query(self, area: AreaCoverage) -> list[dict] | None:
+        """查一個商圈的店家；失敗時回傳 None（連線失敗、不是 JSON、Overpass 回報執行錯誤）。
+
+        Overpass 逾時或記憶體不足時，仍然回 HTTP 200，只在 remark 寫「runtime error」，
+        不能當成「這個商圈沒有店」，否則該商圈既有的店會被當成歇業刪掉。
+        """
+        try:
+            data = json.loads(self.fetcher.post(OVERPASS_URL, {"data": overpass_query(area.stations)}))
+        except (FetchError, ValueError):
+            return None
+        if not isinstance(data, dict) or "runtime error" in str(data.get("remark", "")).lower():
+            return None
+        elements = data.get("elements", [])
+        return elements if isinstance(elements, list) else None
 
     def _pick(self, area: AreaCoverage, elements: list[dict]) -> list[RestaurantRecord]:
         """一個商圈最多留 MAX_RESTAURANTS_PER_AREA 家：資料完整的優先，其次離影城近的。"""
