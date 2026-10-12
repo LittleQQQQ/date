@@ -180,7 +180,7 @@ def main() -> None:
     if problems := schema_problems():
         raise SystemExit(schema_message(problems))
     with SessionLocal() as session:
-        run = run_collector(session, get_collector(args.source), days=args.days, judge=not args.no_jev)
+        run = run_collector(session, get_collector(args.source, session), days=args.days, judge=not args.no_jev)
     if run.status == "ok":
         print(f"[{run.source}] 匯入完成：{run.counts}")
     else:

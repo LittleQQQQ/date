@@ -154,6 +154,8 @@ class Batch(BaseModel):
 
 class Collector(ABC):
     name: str = ""  # 也會寫進資料表的 source 欄位
+    # True：建立時要傳入 coverage（資料庫裡的商圈與車站），由 get_collector 準備
+    needs_coverage: bool = False
 
     @abstractmethod
     def collect(self, start: dt.date, days: int) -> Batch:

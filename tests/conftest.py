@@ -37,3 +37,20 @@ def saturday():
 
     today = today_tw()
     return today + dt.timedelta(days=(5 - today.weekday()) % 7)
+
+
+@pytest.fixture
+def mem_session():
+    """獨立的記憶體資料庫，給匯入相關的測試用，不影響其他測試共用的示意資料。"""
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import Session
+    from sqlalchemy.pool import StaticPool
+
+    from app import models  # noqa: F401  註冊資料表
+    from app.db import Base
+
+    engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+    Base.metadata.create_all(engine)
+    with Session(engine, expire_on_commit=False) as s:
+        yield s
+    engine.dispose()
