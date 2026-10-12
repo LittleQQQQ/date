@@ -84,15 +84,18 @@ def parse_opening_hours(text: str) -> dict[str, list[str] | None] | None:
     """把 OSM 的 opening_hours 轉成專案格式；看不懂的寫法回傳 None（改用估計值）。
 
     同一天分段營業時取最後一段（晚餐時段），寧可少排，也不要排到中間休息的時間。
+    國定假日（PH）只當作日期清單裡可忽略的一項；整條規則都只適用於 PH，或根本沒有規則適用於
+    星期一到日時，視為看不懂。
     """
     text = (text or "").strip()
     if not text:
         return None
-    if text == "24/7":
-        return {"default": ["00:00", "24:00"]}
     week: list[tuple[int, int] | None] = [None] * 7  # OSM 沒寫到的星期視為公休
+    applied = False  # 有沒有規則適用於星期一到日
+    all_day = False  # 有沒有 24/7
     for rule in filter(None, (r.strip() for r in text.split(";"))):
-        if rule.startswith("PH"):
+        if rule == "24/7":
+            all_day = True
             continue
         m = _RULE.match(rule)
         if not m:
@@ -100,18 +103,25 @@ def parse_opening_hours(text: str) -> dict[str, list[str] | None] | None:
         days = _parse_days(m.group("days")) if m.group("days") else list(range(7))
         if days is None:
             return None
+        if not days:  # 只適用於 PH 的規則
+            continue
         if m.group("times") in ("off", "closed"):
             span = None
         else:
             o_h, o_m, c_h, c_m = map(int, _SPAN.findall(m.group("times"))[-1])
-            if max(o_h, c_h) > 24 or max(o_m, c_m) > 59:
-                return None
             open_, close = o_h * 60 + o_m, c_h * 60 + c_m
-            if close <= open_:  # 營業到隔天凌晨
+            if max(o_m, c_m) > 59 or open_ >= 24 * 60 or close > 24 * 60 or open_ == close:
+                return None
+            if close < open_:  # 營業到隔天凌晨
                 close += 24 * 60
             span = (open_, close)
+        applied = True
         for day in days:
             week[day] = span
+    if all_day:  # 24/7 和其他星期的規則混在一起的寫法不處理
+        return None if applied else {"default": ["00:00", "24:00"]}
+    if not applied:
+        return None
     counts = Counter(week)
     default = max(counts, key=lambda s: (counts[s], s is not None))  # 一樣多時，營業的時段優先
     hours = {"default": _fmt(default)}

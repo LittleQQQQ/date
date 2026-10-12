@@ -30,13 +30,33 @@ from app.jev.questions import CUISINE
         ("11:30-14:00,17:30-22:00", {"default": ["17:30", "22:00"]}),
         ("11:30-14:00;17:30-22:00", {"default": ["17:30", "22:00"]}),
         ("Mo-Fr 10:00-20:00; PH off", {"default": ["10:00", "20:00"], "sat": None, "sun": None}),
+        # PH 只是日期清單裡的一個詞，其他日子的規則照樣生效
+        ("Mo-Su 10:00-22:00; PH,Su off", {"default": ["10:00", "22:00"], "sun": None}),
+        ("Mo-Su 10:00-22:00; Su,PH off", {"default": ["10:00", "22:00"], "sun": None}),
+        ("24/7; PH off", {"default": ["00:00", "24:00"]}),
+        ("off", {"default": None}),
+        ("Mo-Su 00:00-24:00", {"default": ["00:00", "24:00"]}),
     ],
 )
 def test_parse_opening_hours(text, expected):
     assert parse_opening_hours(text) == expected
 
 
-@pytest.mark.parametrize("text", ["", "sunrise-sunset", "Mo-Fr 9h-18h", "Jan-Mar 10:00-18:00", "Mo-Fr 25:00-26:00"])
+@pytest.mark.parametrize(
+    "text",
+    [
+        "",
+        "sunrise-sunset",
+        "Mo-Fr 9h-18h",
+        "Jan-Mar 10:00-18:00",
+        "Mo-Fr 25:00-26:00",
+        "PH off",  # 沒有任何規則適用於星期一到日
+        "PH 10:00-14:00",
+        "Mo-Fr 24:00-02:00",  # 24:00 以後才開門
+        "Mo-Fr 10:00-24:30",  # 超過 24:00 才打烊
+        "Mo-Su 10:00-10:00",  # 開門和打烊同一刻
+    ],
+)
 def test_unparseable_hours(text):
     assert parse_opening_hours(text) is None
 
@@ -76,6 +96,7 @@ def test_estimates():
     assert place_hours({"amenity": "bar"}) == ({"default": ["19:00", "25:00"]}, True)
     assert place_hours({"amenity": "cafe", "opening_hours": "Mo-Su 08:00-18:00"}) == ({"default": ["08:00", "18:00"]}, False)
     assert place_hours({"amenity": "restaurant", "opening_hours": "sunrise-sunset"}) == ({"default": ["11:30", "21:00"]}, True)
+    assert place_hours({"amenity": "restaurant", "opening_hours": "PH off"}) == ({"default": ["11:30", "21:00"]}, True)
     assert estimate_price("restaurant", "火鍋／燒肉") == estimate_price("restaurant", "義式／西式") == 800
     assert estimate_price("restaurant", None) == 500
     assert estimate_price("fast_food", "美式") == 200
@@ -87,3 +108,4 @@ def test_completeness():
     assert completeness({"amenity": "restaurant", "opening_hours": "24/7"}) == 2
     assert completeness({"amenity": "restaurant", "cuisine": "thai"}) == 1
     assert completeness({"amenity": "restaurant"}) == 0
+    assert completeness({"amenity": "restaurant", "opening_hours": "PH off"}) == 0
