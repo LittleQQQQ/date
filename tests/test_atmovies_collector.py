@@ -40,6 +40,11 @@ def pages():
     }
 
 
+def empty_day(day):
+    """有日期、沒有任何電影的時刻表頁。"""
+    return f"<html><body><h3>{day:%Y/%m/%d} (一)</h3></body></html>"
+
+
 def collect(days=2, **overrides):
     """overrides：網址 → 內容，蓋掉 pages() 裡同一個網址（用來模擬某一頁壞掉）。"""
     fetcher = FakeFetcher({**pages(), **overrides})
@@ -110,7 +115,9 @@ def test_movies_and_synopsis():
 
 
 def test_dates_limited_to_what_the_site_offers():
-    batch, fetcher = collect(days=14)
+    # 信義威秀後兩天也要抓得到（沒有場次的頁面就好），否則商圈內的影城全部失敗會直接報錯
+    later = {theater_url("t02a01", "a02", day, TODAY): empty_day(day) for day in (TODAY + dt.timedelta(days=i) for i in (2, 3))}
+    batch, fetcher = collect(days=14, **later)
     assert batch.showtime_dates == (TODAY, TODAY + dt.timedelta(days=3))
     assert not any("20261016" in url for url in fetcher.requested)
 
@@ -133,3 +140,52 @@ def test_run_atmovies_into_database(mem_session):
     ).all()
     assert rows and all(c.area_id == "台北市/信義" for _, c in rows)
     assert all(s.movie_id is not None for s, _ in rows)
+
+
+def _theater_pages(tids, make_page):
+    """每家影城今天、明天的時刻表都換成 make_page(日期) 的內容；內容是 None 就是抓不到。"""
+    return {
+        theater_url(tid, "a02", day, TODAY): make_page(day) for tid in tids for day in (TODAY, TOMORROW)
+    }
+
+
+def test_all_in_area_theaters_failing_is_an_error():
+    broken = _theater_pages(["t02a01", "t02a03", "t02b01"], lambda day: None)  # 商圈內的影城時刻表全部抓不到
+    with pytest.raises(ScrapeError, match="全部抓取失敗"):
+        collect(**broken)
+
+
+def test_region_without_theaters_in_any_area_is_a_normal_empty_result():
+    far = Coverage([AreaCoverage("台北市/遠方", "台北市", [Point(25.2000, 121.9000)])])
+    batch = AtmoviesCollector(far, fetcher=FakeFetcher(pages()), today=TODAY).collect(TODAY, 2)
+    assert batch.cinemas == [] and batch.showtimes == []  # 商圈附近沒有影城：正常的空結果，不是錯誤
+
+
+def test_timetables_without_any_showtime_are_an_error():
+    with pytest.raises(ScrapeError, match="沒有場次"):
+        collect(**_theater_pages(["t02a01", "t02a03", "t02b01"], empty_day))
+
+
+def test_movie_page_without_synopsis_is_not_kept_in_the_cache():
+    url = movie_url("fsjp92458256")
+    batch, fetcher = collect(**{url: "<html>系統忙碌中，請稍後再試</html>"})
+    movies = {m.external_id: m for m in batch.movies}
+    assert movies["fsjp92458256"].synopsis == ""
+    assert fetcher.forgotten == [url]  # 壞掉的電影頁不能留在快取裡 30 天；有簡介的頁面照常快取
+
+
+def test_long_text_is_cut_to_the_column_lengths():
+    def long_page(day):
+        return (
+            f"<html><body><ul><li>地址: {'路' * 250}\n<a>(地圖)</a></ul><h3>{day:%Y/%m/%d} (一)</h3>"
+            f'<ul id="theaterShowtimeTable"><li class="filmTitle"><a href="/movie/fven32261958/">{"片" * 120}</a></li>'
+            f'<li><ul><li>片長：100分</li></ul><ul><li class="filmVersion">{"版" * 60}</li><li>19：00</li></ul></li></ul>'
+            "</body></html>"
+        )
+
+    region = f'<html><body><a href="/showtime/t02a01/a02/">{"影" * 60}</a></body></html>'
+    batch, _ = collect(**{region_url("a02"): region}, **_theater_pages(["t02a01"], long_page))
+    cinema, movie, showtime = batch.cinemas[0], batch.movies[0], batch.showtimes[0]
+    assert (len(cinema.name), len(cinema.address)) == (50, 200)
+    assert len(movie.title) == 100
+    assert (len(showtime.raw_title), len(showtime.label)) == (100, 50)

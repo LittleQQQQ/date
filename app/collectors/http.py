@@ -25,6 +25,13 @@ class FetchError(Exception):
     """抓不到這一頁（重試後仍失敗，或網站回 4xx）。"""
 
 
+def _site(url: str) -> str:
+    """限速用的網站名稱：主機名稱有 3 段以上就去掉第一段，www.atmovies.com.tw 和 ww2.atmovies.com.tw 算同一個網站。"""
+    host = urlsplit(url).netloc
+    labels = host.split(".")
+    return ".".join(labels[1:]) if len(labels) >= 3 else host
+
+
 class Fetcher:
     def __init__(
         self,
@@ -70,7 +77,7 @@ class Fetcher:
             self._wait_turn(url)
             try:
                 resp = self.client.request(method, url, **kwargs)
-            except httpx.TransportError as exc:
+            except httpx.RequestError as exc:  # 含重導向太多次、內容解不開，不只是連線問題
                 last_error = f"{type(exc).__name__}: {exc}"
             else:
                 if resp.status_code < 400:
@@ -83,12 +90,12 @@ class Fetcher:
         raise FetchError(f"{url} 重試 {self.retries} 次仍失敗：{last_error}")
 
     def _wait_turn(self, url: str) -> None:
-        host = urlsplit(url).netloc
-        if host in self._last:
-            gap = self.min_interval - (self.clock() - self._last[host])
+        site = _site(url)
+        if site in self._last:
+            gap = self.min_interval - (self.clock() - self._last[site])
             if gap > 0:
                 self.sleep(gap)
-        self._last[host] = self.clock()
+        self._last[site] = self.clock()
 
     def _cache_path(self, url: str) -> Path:
         return self.cache_dir / f"{hashlib.sha1(url.encode('utf-8')).hexdigest()}.html"

@@ -288,7 +288,7 @@ class OsmCollector(Collector):
             return None
         if not isinstance(data, dict) or "runtime error" in str(data.get("remark", "")).lower():
             return None
-        elements = data.get("elements", [])
+        elements = data.get("elements")  # 沒有 elements（代理伺服器的 JSON 錯誤、只有 remark）不是「沒有店」
         return elements if isinstance(elements, list) else None
 
     def _pick(self, area: AreaCoverage, elements: list[dict]) -> list[RestaurantRecord]:

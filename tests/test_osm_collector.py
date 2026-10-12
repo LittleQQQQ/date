@@ -83,7 +83,11 @@ def test_run_osm_into_database(mem_session):
 RUNTIME_ERROR = json.dumps({"elements": [], "remark": 'runtime error: Query timed out in "query" at line 3 after 61 seconds.'})
 
 
-@pytest.mark.parametrize("bad", [RUNTIME_ERROR, "<html>busy</html>", "[]", "null"], ids=["runtime_error", "not_json", "list", "null"])
+@pytest.mark.parametrize(
+    "bad",
+    [RUNTIME_ERROR, "<html>busy</html>", "[]", "null", '{"remark": "x"}'],
+    ids=["runtime_error", "not_json", "list", "null", "no_elements"],
+)
 def test_unusable_answer_counts_as_a_failed_area(bad):
     fetcher = FakeFetcher({OVERPASS_URL: [bad, SAMPLES / "xinyi.json"]})  # 信義失敗，西門町正常
     batch = OsmCollector(COV, fetcher=fetcher).collect(TODAY, 1)

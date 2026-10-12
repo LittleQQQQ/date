@@ -25,6 +25,7 @@ MAP_URL = "http://ww2.atmovies.com.tw/movie/GMap2018.cfm?tid={tid}"
 SITE_DAYS = 4  # 網站提供今天起幾天的時刻表
 CACHE_DAYS = 30  # 地圖頁、電影頁很少變
 SYNOPSIS_MAX = 600
+NAME_MAX, ADDRESS_MAX, TITLE_MAX, LABEL_MAX = 50, 200, 100, 50  # 資料表欄位的長度（models.py），Postgres 超過會整批失敗
 DEFAULT_LABEL = "數位"  # 沒標版本的場次
 PREMIUM_WORDS = ("IMAX", "4DX", "巨幕", "TITAN", "SCREENX", "DOLBY")
 PRICE_PREMIUM, PRICE_NORMAL = 420, 300
@@ -175,7 +176,7 @@ class AtmoviesCollector(Collector):
         if not dates or not regions:
             return Batch()
 
-        self.failed = self.skipped = 0
+        self.failed = self.skipped = self.attempted = 0
         cinemas: list[CinemaRecord] = []
         films: dict[str, FilmShowing] = {}  # 電影編號 → 第一次看到的片名、片長
         showtimes: list[ShowtimeRecord] = []
@@ -193,6 +194,11 @@ class AtmoviesCollector(Collector):
                     films.setdefault(film.movie_id, film)
                 showtimes += theater_showtimes
 
+        if not cinemas and self.attempted:
+            raise ScrapeError("開眼：商圈內的影城全部抓取失敗")
+        if cinemas and not showtimes:
+            raise ScrapeError("開眼：影城頁面都沒有場次，網站可能改版了")
+
         movies = [self._movie(film) for film in films.values()]
         return Batch(
             cinemas=cinemas,
@@ -206,7 +212,11 @@ class AtmoviesCollector(Collector):
     def _theater(
         self, theater: TheaterLink, region: str, dates: list[dt.date], today: dt.date
     ) -> tuple[CinemaRecord, list[FilmShowing], list[ShowtimeRecord]] | None:
-        """抓一家影城。不在商圈範圍、或任何一頁抓失敗就回傳 None（保留這家影城上次的場次）。"""
+        """抓一家影城。不在商圈範圍、或任何一頁抓失敗就回傳 None（保留這家影城上次的場次）。
+
+        self.attempted 記有多少家影城在商圈內（或地圖抓不到、不知道在不在）而試著抓過，
+        用來分辨「商圈內的影城全部失敗」和「商圈附近本來就沒有影城」。
+        """
         map_url = MAP_URL.format(tid=theater.tid)
         point = None
         try:
@@ -217,10 +227,12 @@ class AtmoviesCollector(Collector):
             pass
         if point is None:
             self.failed += 1
+            self.attempted += 1
             return None
         area = self.coverage.area_for(*point)
         if area is None:
             return None
+        self.attempted += 1
 
         pages = []
         for day in dates:
@@ -236,7 +248,8 @@ class AtmoviesCollector(Collector):
             pages.append((day, url, page))
 
         cinema = CinemaRecord(
-            external_id=theater.tid, name=theater.name, area_id=area, address=pages[0][2].address,
+            external_id=theater.tid, name=theater.name[:NAME_MAX], area_id=area,
+            address=pages[0][2].address[:ADDRESS_MAX],
             lat=point[0], lng=point[1], source_url=theater_url(theater.tid, region, today, today),
         )
         films: list[FilmShowing] = []
@@ -247,12 +260,12 @@ class AtmoviesCollector(Collector):
                     self.skipped += len(film.times)
                     continue
                 films.append(film)
-                label = film.version or DEFAULT_LABEL
+                label = (film.version or DEFAULT_LABEL)[:LABEL_MAX]
                 for start in film.times:
                     eid = f"{theater.tid}|{film.movie_id}|{label}|{day.isoformat()}|{start}"
                     showtimes[eid] = ShowtimeRecord(
                         external_id=eid, cinema_external_id=theater.tid, movie_external_id=film.movie_id,
-                        raw_title=film.title, date=day, start=start, label=label, price=price_for(label),
+                        raw_title=film.title[:TITLE_MAX], date=day, start=start, label=label, price=price_for(label),
                         source_url=url, estimated=["price"],
                     )
         return cinema, films, list(showtimes.values())
@@ -261,10 +274,12 @@ class AtmoviesCollector(Collector):
         url = movie_url(film.movie_id)
         try:
             synopsis = parse_synopsis(self.fetcher.get(url, cache_days=CACHE_DAYS))
+            if not synopsis:
+                self.fetcher.forget(url)  # 網站忙碌時可能回 200 的空頁面，不能讓它被快取 30 天
         except FetchError:
             self.failed += 1
             synopsis = ""
         return MovieRecord(
-            external_id=film.movie_id, title=film.title, runtime_min=film.runtime_min,
+            external_id=film.movie_id, title=film.title[:TITLE_MAX], runtime_min=film.runtime_min,
             synopsis=synopsis, source_url=url,
         )

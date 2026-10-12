@@ -175,3 +175,31 @@ def test_failed_collect_leaves_no_data(mem_session):
     run = run_collector(mem_session, Broken())
     assert run.status == "error" and run.error.startswith("RuntimeError: 網站掛了")
     assert _restaurants(mem_session) == []
+
+
+def _movie_row(session, eid):
+    return session.scalar(select(Movie).where(Movie.source == "scraper", Movie.external_id == eid))
+
+
+def test_reupsert_keeps_jev_filled_genre_when_source_has_none(mem_session):
+    _base(mem_session)
+    scary = MovieRecord(external_id="H", title="鬼入室", runtime_min=95, synopsis="惡靈附身的驚悚故事，怪事不斷。")
+    upsert_batch(mem_session, "scraper", Batch(movies=[scary]))
+    precompute_jev(mem_session)
+    assert _movie_row(mem_session, "H").genre == "恐怖"
+    upsert_batch(mem_session, "scraper", Batch(movies=[scary]))  # 開眼這次一樣沒給片型（genre 是空字串）
+    assert _movie_row(mem_session, "H").genre == "恐怖"
+
+
+def test_reupsert_keeps_old_synopsis_when_new_one_is_empty(mem_session):
+    _base(mem_session)
+    upsert_batch(mem_session, "scraper", Batch(movies=[MovieRecord(external_id="S", title="片", runtime_min=100, synopsis="舊簡介")]))
+    upsert_batch(mem_session, "scraper", Batch(movies=[MovieRecord(external_id="S", title="片", runtime_min=100, synopsis="")]))  # 網站忙碌，這次沒抓到
+    assert _movie_row(mem_session, "S").synopsis == "舊簡介"
+
+
+def test_reupsert_replaces_synopsis_with_a_new_one(mem_session):
+    _base(mem_session)
+    upsert_batch(mem_session, "scraper", Batch(movies=[MovieRecord(external_id="S", title="片", runtime_min=100, synopsis="舊簡介")]))
+    upsert_batch(mem_session, "scraper", Batch(movies=[MovieRecord(external_id="S", title="片", runtime_min=100, synopsis="新簡介")]))
+    assert _movie_row(mem_session, "S").synopsis == "新簡介"

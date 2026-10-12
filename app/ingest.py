@@ -28,6 +28,9 @@ from .timeutil import now_tw, today_tw
 
 T = TypeVar("T", Cinema, Movie, Restaurant)
 
+# 來源這次給空值時，保留資料庫裡原有的值：開眼沒有片型（由 Jev 補上）、簡介偶爾抓不到，不能因此被清空
+KEEP_IF_EMPTY = {Movie: ("genre", "synopsis")}
+
 
 def _find(session: Session, model: type[T], source: str, external_id: str) -> T | None:
     return session.scalar(select(model).where(model.source == source, model.external_id == external_id))
@@ -38,7 +41,10 @@ def _upsert(session: Session, model: type[T], source: str, record, fetched_at: d
     if row is None:
         row = model(source=source, external_id=record.external_id)
         session.add(row)
+    keep = KEEP_IF_EMPTY.get(model, ())
     for field, value in record.model_dump().items():
+        if field in keep and not value and getattr(row, field):
+            continue
         setattr(row, field, value)
     row.fetched_at = fetched_at
     return row

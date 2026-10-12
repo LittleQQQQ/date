@@ -58,6 +58,7 @@ py -3 -m venv .venv
 
 - 沒有 `.env` 時使用專案資料夾裡的 SQLite（`dev.db`），可以先跑起來。
 - Ollama 沒開也能用，摘要會改用範本。要用 LLM：先開 Ollama，並下載模型 `ollama pull qwen2.5:3b`。
+- 使用 `uvicorn --reload`、多個 `--workers`，或正在手動執行 `python -m app.ingest` 時，請在 `.env` 設 `AUTO_REFRESH=false`，否則會有好幾個更新程式同時抓資料。
 
 ## 改用 PostgreSQL
 
@@ -123,14 +124,14 @@ POST {JEV_API_URL}/predict
 
 手動執行：`python -m app.ingest --source atmovies`（或 `osm`、`base`）。
 
-- 每個網站每秒最多一次請求；地圖頁、電影頁快取在 `data/cache/`（30 天）。
+- 抓資料請遵守各網站的 robots.txt 與使用條款；目前每個網站每秒最多一次請求，地圖頁、電影頁快取在 `data/cache/`（30 天）。
 - 開眼沒有票價和片型：票價依版本估計（IMAX、4DX 這類 420 元，其他 300 元）；片型由 Jev 讀簡介判斷，沒把握就顯示「片型未知」。
 - OSM 沒有評論和價位，大約只有一成店家標了營業時間：介紹由標籤組成；營業時間、價位依店的類型估計。
 - 抓取失敗時保留舊資料，錯誤記在 `scrape_runs` 表；某家影城或某個商圈失敗，只有它保留舊資料。
-- Overpass 常因為太忙而逾時（504）。OSM 單次查詢會重試 3 次（間隔 15 秒、30 秒）；若執行完仍有商圈沒抓到，下一次檢查（下次啟動，或隔天 `REFRESH_HOUR` 點）會再抓一次 OSM，不必等一週。
+- Overpass 常因為太忙而逾時（504）。OSM 單次查詢最多試 3 次（間隔 15 秒、30 秒）；若執行完仍有商圈沒抓到，下一次檢查（下次啟動，或隔天 `REFRESH_HOUR` 點）會再抓一次 OSM，不必等一週。
 - 來源標示：場次來自開眼電影網；餐廳資料 © OpenStreetMap 貢獻者，以 ODbL 授權。
 
-新增爬蟲：在 `app/collectors/` 新增檔案，繼承 `Collector`，實作 `collect(start, days)` 回傳 `Batch`（格式見 `app/collectors/base.py`）；需要商圈範圍就設 `needs_coverage = True`，建構子接收 `coverage`。最後在 `app/collectors/__init__.py` 的 `COLLECTORS` 登記。
+新增爬蟲：在 `app/collectors/` 新增檔案，繼承 `Collector`，實作 `collect(start, days)` 回傳 `Batch`（格式見 `app/collectors/base.py`）；需要商圈範圍就設 `needs_coverage = True`，建構子接收 `coverage`。最後在 `app/collectors/__init__.py` 的 `COLLECTORS` 登記；要讓伺服器自動更新，還要加進 `app/refresher.py` 的 `SOURCES` 與 `due_sources`。
 
 交通建議改用交通部 TDX API（需要免費註冊）。交通資料的格式是路網：`stations`（站）＋`transit_links`（有方向的路段，含路線名稱、車程、班距、首末班）。
 
