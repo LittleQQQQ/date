@@ -65,6 +65,7 @@ class ShowtimeInfo:
     title_match: JevAnswer | None = None
     genre: str = ""
     synopsis: str = ""
+    estimated: list[str] = field(default_factory=list)  # 估計的欄位，例如 ["price"]
 
 
 @dataclass
@@ -82,6 +83,7 @@ class RestaurantInfo:
     description: str = ""
     reviews: list[str] = field(default_factory=list)
     diet_ok: JevAnswer | None = None  # 使用者有飲食限制時才問
+    estimated: list[str] = field(default_factory=list)  # 估計的欄位，例如 ["hours", "price"]
 
 
 # 問 Jev 的介面：（題目, 對象, 要給 Jev 讀的資料）→ 答案（已套用使用者確認過的答案）
@@ -546,6 +548,19 @@ def _labels(picked: list[dict]) -> list[list[str]]:
     return labels
 
 
+ESTIMATE_NOTES = (
+    ("movie", "price", "票價為估計"),
+    ("restaurant", "hours", "營業時間為估計，出發前請先確認"),
+    ("restaurant", "price", "價位為估計"),
+)
+
+
+def _estimate_notes(showtime, restaurant) -> list[str]:
+    """哪些數字是估計的（爬蟲抓不到），卡片上要提醒。"""
+    sources = {"movie": showtime.estimated, "restaurant": restaurant.estimated}
+    return [note for kind, name, note in ESTIMATE_NOTES if name in sources[kind]]
+
+
 def _plan_dict(labels: list[str], pick: dict) -> dict:
     c = pick["candidate"]
     s, r = c.showtime, c.restaurant
@@ -573,6 +588,7 @@ def _plan_dict(labels: list[str], pick: dict) -> dict:
             "audio": s.audio.top,
             "price": s.price,
             "runtime_min": s.runtime_min,
+            "estimated": s.estimated,
         },
         "restaurant": {
             "id": r.place.id,
@@ -582,10 +598,12 @@ def _plan_dict(labels: list[str], pick: dict) -> dict:
             "date_fit": r.date_fit.top,
             "pace": r.pace.top,
             "reservable": r.reservable,
+            "estimated": r.estimated,
         },
         "steps": [step.to_dict() for step in c.steps],
         "flags": c.flags,
         "tips": c.tips,
+        "estimates": _estimate_notes(s, r),
         "jev": [a.to_dict() for a in attributes if a is not None],
     }
 

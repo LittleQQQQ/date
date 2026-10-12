@@ -159,3 +159,22 @@ def test_unknown_origin_is_an_error(session, saturday):
 
     with pytest.raises(ValueError, match="找不到出發站"):
         _plan(session, saturday, origin="火星")
+
+
+def test_estimate_notes():
+    from types import SimpleNamespace as NS
+
+    from app.planner import _estimate_notes
+
+    assert _estimate_notes(NS(estimated=["price"]), NS(estimated=["hours", "price"])) == [
+        "票價為估計", "營業時間為估計，出發前請先確認", "價位為估計",
+    ]
+    assert _estimate_notes(NS(estimated=[]), NS(estimated=[])) == []
+
+
+def test_plans_carry_estimates(session, saturday):
+    res = _plan(session, saturday)
+    assert res["plans"]
+    for p in res["plans"]:
+        assert p["estimates"] == []  # 示意資料沒有估計欄位
+        assert p["movie"]["estimated"] == [] and p["restaurant"]["estimated"] == []
