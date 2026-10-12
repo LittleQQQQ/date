@@ -1,0 +1,13 @@
+{
+  "_note": "商圈與交通為手寫估計值；座標取自 OpenStreetMap（2026-10-12）。環球中華影城離斗六車站步行約 16 分鐘，商圈車站用影城旁的公車站。",
+  "areas": [
+    {"id": "雲林縣/斗六", "city": "雲林縣", "name": "斗六"}
+  ],
+  "stations": [
+    {"id": "yun-douliu", "name": "斗六", "city": "雲林縣", "lat": 23.71181, "lng": 120.54116, "transfer_min": 5, "is_origin": true},
+    {"id": "yun-cinema", "name": "雲林溪（環球中華影城）", "city": "雲林縣", "lat": 23.70582, "lng": 120.53547, "transfer_min": 2, "is_origin": false, "area_id": "雲林縣/斗六"}
+  ],
+  "transit_links": [
+    {"from": "yun-douliu", "to": "yun-cinema", "mode": "公車", "line": "公車（斗六車站—雲林溪）", "ride": 6, "headway": 20, "first": "06:00", "last": "22:00", "both_ways": true}
+  ]
+}
