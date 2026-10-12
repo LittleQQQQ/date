@@ -3,10 +3,11 @@
 用下拉式選單選好縣市、商圈、出發站、日期、想看的片、幾點前到家、想吃什麼，
 系統排出「電影 ＋ 餐廳 ＋ 大眾運輸」的完整時間軸。**看哪部片、吃哪一家由 Jev 決定**，結果是 Jev 的前三名組合。
 
-- 地區涵蓋全台 22 縣市；目前六都各有 1～2 個商圈的示意資料，其他縣市顯示「尚無資料」，等爬蟲補上。
+- 地區涵蓋全台 22 縣市；目前六都各有 1～2 個商圈（商圈與交通是手寫的示意資料），其他縣市顯示「尚無資料」。
+- 影城、電影、場次來自**開眼電影網**，餐廳來自 **OpenStreetMap**，伺服器會自動更新。
 - 可以跨縣市出發（例如從台中車站到台北信義區），自動安排捷運、台鐵、高鐵、公車轉乘，並檢查各段末班車。
 
-> 目前使用**示意資料**（虛構的影城與餐廳、估計的交通班次），Jev 使用**模擬版**。
+> 交通班次是**估計值**；票價、沒標營業時間的餐廳營業時間與價位也是估計，畫面上會標示。Jev 使用**模擬版**。
 
 ## 架構
 
@@ -23,7 +24,8 @@ FastAPI（app/api.py）
 排程計算（app/planner.py）：列舉組合、逐段檢查時間、評分挑選
   │  └─ 交通路網（app/transit.py）：找最晚出門、最早到家的轉乘路線
   ▼
-PostgreSQL ◄── 匯入（app/ingest.py）◄── 資料來源（app/collectors/）：現在是示意資料，之後換成爬蟲
+PostgreSQL ◄── 匯入（app/ingest.py）◄── 資料來源（app/collectors/）：開眼電影網、OpenStreetMap、商圈與交通
+                                         ▲ 自動更新（app/refresher.py）：啟動時補抓、每天早上再抓
 ```
 
 三段分工對應簡報：
@@ -52,7 +54,7 @@ py -3 -m venv .venv
 .venv\Scripts\python.exe -m uvicorn app.main:app --port 8000
 ```
 
-打開 http://127.0.0.1:8000 。第一次啟動會自動匯入示意資料（今天起 14 天的場次）。
+打開 http://127.0.0.1:8000 。第一次啟動會先匯入商圈與交通，接著在背景抓餐廳（約半分鐘）和影城場次（約 3～4 分鐘），抓完網頁會自動載入。之後伺服器每天早上 6 點自動更新（開眼每天、OSM 每週）。
 
 - 沒有 `.env` 時使用專案資料夾裡的 SQLite（`dev.db`），可以先跑起來。
 - Ollama 沒開也能用，摘要會改用範本。要用 LLM：先開 Ollama，並下載模型 `ollama pull qwen2.5:3b`。
@@ -64,13 +66,13 @@ py -3 -m venv .venv
    & "C:\Program Files\PostgreSQL\18\bin\psql.exe" -U postgres -f db\init.sql
    ```
 2. 複製 `.env.example` 為 `.env`，把 `DATABASE_URL` 裡的密碼改成同一個。
-3. 匯入資料（資料表會自動建立）：
+3. 匯入商圈與交通（資料表會自動建立）：
    ```powershell
    .venv\Scripts\python.exe -m app.ingest
    ```
 4. 照常啟動伺服器。
 
-資料表結構改版時（啟動會提示「資料表結構是舊版的」），執行 `python -m app.ingest --reset` 重建。這會清空資料庫，再重新匯入示意資料。
+資料表結構改版時（啟動會提示「資料表結構是舊版的」），執行 `python -m app.ingest --reset` 重建。這會清空資料庫，再重新匯入商圈與交通；影城、場次、餐廳會在伺服器啟動時重新抓。
 
 ## 設定（.env）
 
@@ -83,6 +85,8 @@ py -3 -m venv .venv
 | `OLLAMA_URL` | `http://localhost:11434` | 留空 = 不用 LLM |
 | `OLLAMA_MODEL` | `qwen2.5:3b` | |
 | `MCP_CLIENT_URL` | 空 | 網頁排程呼叫 MCP 的方式：空 = 同程序內連線；填 `http://127.0.0.1:8000/mcp` = 走 HTTP |
+| `AUTO_REFRESH` | `true` | 伺服器啟動時在背景補抓資料，之後每天定時更新 |
+| `REFRESH_HOUR` | `6` | 每天幾點更新 |
 
 ## Jev 怎麼做選擇
 
@@ -108,21 +112,26 @@ POST {JEV_API_URL}/predict
 改好後在 `.env` 設 `JEV_MODE=api`，再執行 `python -m app.ingest` 重新做預先判斷。
 判斷結果快取在 `jev_judgments` 表；原始文字沒變就不會重問。
 
-## 新增爬蟲
+## 資料來源
 
-1. 在 `app/collectors/` 新增檔案，繼承 `Collector`，實作 `collect(start, days)`，回傳 `Batch`（格式見 `app/collectors/base.py`）。
-2. 在 `app/collectors/__init__.py` 的 `COLLECTORS` 登記名稱。
-3. 執行 `python -m app.ingest --source 名稱`，可用 Windows 工作排程器定時執行。
+| 名稱 | 檔案 | 內容 | 更新 |
+|---|---|---|---|
+| `base` | `app/collectors/fixture.py` | 商圈、車站、交通路段（`data/fixture/` 手寫的估計值） | 每次啟動 |
+| `atmovies` | `app/collectors/atmovies.py` | 開眼電影網：商圈附近的影城、電影（片長、簡介）、今天起 4 天的場次 | 每天 |
+| `osm` | `app/collectors/osm.py` | OpenStreetMap：商圈車站步行 15 分鐘內的餐廳，每個商圈最多 60 家 | 每週 |
+| `fixture` | `app/collectors/fixture.py` | 完整的虛構資料，只給自動測試用 | — |
 
-注意事項：
+手動執行：`python -m app.ingest --source atmovies`（或 `osm`、`base`）。
 
-- 交通建議直接用交通部 TDX API（官方開放資料，涵蓋全台捷運、台鐵、高鐵、公車），不必爬蟲。
-  交通資料的格式是路網：`stations`（站）＋`transit_links`（有方向的路段，含路線名稱、車程、班距、首末班）。
-  同一棟車站裡的不同路線（例如板橋的捷運、台鐵、高鐵）算同一個站，換線時加上該站的 `transfer_min`。
-- 商圈代碼是「縣市/商圈」（例如 `台中市/七期`），縣市名稱一律用「台」字，清單在 `app/regions.py`。
-- 遵守各網站的 robots.txt 與服務條款、控制抓取頻率；Google 地圖不允許爬取，餐廳資料需另找可合法使用的來源。
-- 抓取失敗時會保留舊資料，錯誤記在 `scrape_runs` 表。
-- 場次的片名寫法和電影資料不同時，`movie_id` 會是空的，排程會跳過（不知道片長）。
+- 每個網站每秒最多一次請求；地圖頁、電影頁快取在 `data/cache/`（30 天）。
+- 開眼沒有票價和片型：票價依版本估計（IMAX、4DX 這類 420 元，其他 300 元）；片型由 Jev 讀簡介判斷，沒把握就顯示「片型未知」。
+- OSM 沒有評論和價位，大約只有一成店家標了營業時間：介紹由標籤組成；營業時間、價位依店的類型估計。
+- 抓取失敗時保留舊資料，錯誤記在 `scrape_runs` 表；某家影城或某個商圈失敗，只有它保留舊資料。
+- 來源標示：場次來自開眼電影網；餐廳資料 © OpenStreetMap 貢獻者，以 ODbL 授權。
+
+新增爬蟲：在 `app/collectors/` 新增檔案，繼承 `Collector`，實作 `collect(start, days)` 回傳 `Batch`（格式見 `app/collectors/base.py`）；需要商圈範圍就設 `needs_coverage = True`，建構子接收 `coverage`。最後在 `app/collectors/__init__.py` 的 `COLLECTORS` 登記。
+
+交通建議改用交通部 TDX API（需要免費註冊）。交通資料的格式是路網：`stations`（站）＋`transit_links`（有方向的路段，含路線名稱、車程、班距、首末班）。
 
 ## MCP
 
@@ -157,7 +166,8 @@ app/
   regions.py       全台 22 縣市
   llm.py           Ollama：需求解析、摘要（含規則備援）
   jev/             Jev 題目、模擬版、API 版、快取
-  collectors/      資料來源介面與示意資料
+  collectors/      資料來源：開眼、OSM、商圈與交通、示意資料
+  refresher.py     背景自動更新
   ingest.py        匯入與 Jev 預先判斷
   models.py        資料表
 data/fixture/      示意資料（每個縣市一個檔，另有高鐵路網與片單）
@@ -169,8 +179,8 @@ tests/             自動測試
 ## 目前的限制
 
 - Jev 模擬版的選片、選餐廳規則很簡單（片型符不符合、約會適合度、緩衝時間），只用來展示流程；實際效果要等接上 Jev API。
-- 資料是示意資料，只有六都 7 個商圈；其他 16 個縣市等爬蟲補資料。
-- 只支援大眾運輸，不含開車、騎車。
-- 交通以「車程＋最長班距」估算，不是真正的時刻表；步行時間用直線距離 × 1.3 估算，車站到影城或餐廳最多走 15 分鐘。
+- 商圈與交通是手寫的示意資料，只有六都 7 個商圈；交通以「車程＋最長班距」估算，不是真正的時刻表。
+- 票價、沒標營業時間的餐廳營業時間、餐廳價位都是估計值；餐廳沒有評論。
+- 開眼只提供今天起 4 天的場次。
+- 只支援大眾運輸，不含開車、騎車。步行時間用直線距離 × 1.3 估算，車站到影城或餐廳最多走 15 分鐘。
 - 候位時間是依尖峰離峰的粗略估計。
-- Jev 模擬版只是關鍵字規則，用來展示「有把握／沒把握」兩種情況。
