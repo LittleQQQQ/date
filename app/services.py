@@ -376,7 +376,7 @@ def list_cities(session: Session) -> list[dict]:
         if not is_open(city):
             continue
         city_areas = [{"id": a.id, "name": a.name, "dates": dates[a.id]} for a in areas if a.city == city and a.id in dates]
-        city_origins = [{"id": s.id, "name": s.name} for s in origins if s.city == city]
+        city_origins = [{"id": s.id, "name": s.name, "area": s.area_id} for s in origins if s.city == city]
         cities.append({"name": city, "region": region, "areas": city_areas, "origins": city_origins})
     return cities
 
@@ -399,7 +399,7 @@ def meta(session: Session) -> dict:
         "today": today_tw().isoformat(),
         "cities": cities,
         "areas": [{"id": a["id"], "name": a["name"], "city": c["name"]} for c in cities for a in c["areas"]],
-        "origins": [{"id": o["id"], "name": o["name"], "city": c["name"]} for c in cities for o in c["origins"]],
+        "origins": [{**o, "city": c["name"]} for c in cities for o in c["origins"]],
         "movies": _open_movie_titles(session),
         "options": {
             "screen_types": list(SCREEN.options),

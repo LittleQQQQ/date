@@ -125,3 +125,13 @@ def test_scrapers_only_cover_open_cities(session, taoyuan_only):
         assert get_collector(name, session).coverage.cities() == {"桃園市"}
     # 直接呼叫 load_coverage（例如路網檢查）時不受設定影響
     assert len(load_coverage(session).cities()) > 1
+
+
+def test_chat_without_an_area_stays_in_scope(client, taoyuan_only):
+    """以前沒說商圈會用預設的台北市/信義，被開放範圍擋下來（「目前只開放桃園市」）。"""
+    resp = client.post("/api/chat", json={"message": "明天從桃園出發看電影"})
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["request"]["origin"] == "tyn-taoyuan"
+    assert data["request"]["area"] == "桃園市/青埔"  # 測試資料的桃園區沒有場次，改挑同縣市有場次的商圈
+    assert data["parse"]["sources"]["area"] == "預設"

@@ -105,3 +105,13 @@ def test_mcp_tools(client, saturday):
     assert {"list_areas", "plan_date", "search_showtimes", "find_restaurants", "check_route"} <= names
     assert result.structured_content["plans"]
     assert bad.is_error
+
+
+def test_chat_before_any_area_has_data(client, monkeypatch):
+    from app import services
+
+    real_meta = services.meta
+    monkeypatch.setattr(services, "meta", lambda session: {**real_meta(session), "areas": []})
+    resp = client.post("/api/chat", json={"message": "明天從板橋出發看電影"})
+    assert resp.status_code == 400
+    assert "還沒有可以排程的商圈資料" in resp.json()["detail"]
