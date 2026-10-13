@@ -40,6 +40,14 @@ CINEMAS = [
     ("雲林北港秀泰", 23.569749, 120.299199, None),
     ("in89澎湖影城", 23.568284, 119.573911, "澎湖縣/馬公"),
     ("金獅影城", 24.446036, 118.369248, None),  # 金門暫時排除：OSM 在影城附近沒有餐廳資料
+    ("桃園統領威秀影城", 24.9910614, 121.312373, "桃園市/桃園區"),
+    ("桃園站前in89豪華影城", 24.9911841, 121.312827, "桃園市/桃園區"),
+    ("桃園桃知道威秀影城", 25.0186174, 121.300141, "桃園市/桃園區"),
+    ("桃園新光影城", 25.017023, 121.212666, "桃園市/青埔"),
+    ("威尼斯影城", 24.961511, 121.224225, "桃園市/中壢"),
+    ("星橋國際影城", 25.0006585, 121.22921, "桃園市/中壢"),
+    ("國賓桃園八德", 24.96491, 121.299257, "桃園市/八德"),
+    ("中壢光影電影館", 24.936842, 121.238043, None),  # 小型藝術電影館，最近的中壢車站要走 39 分
 ]
 
 # 本島商圈：都要能從台北車站去、也回得來
@@ -47,7 +55,10 @@ MAIN_ISLAND_AREAS = [
     "台北市/信義",
     "台北市/西門町",
     "新北市/板橋",
+    "桃園市/桃園區",
     "桃園市/青埔",
+    "桃園市/中壢",
+    "桃園市/八德",
     "台中市/七期",
     "台南市/中西區",
     "高雄市/三多",
@@ -117,7 +128,7 @@ def test_island_area_only_reachable_from_the_island(base, area_id, island_origin
 
 def test_nineteen_cities_have_areas(base):
     areas = base.scalars(select(Area)).all()
-    assert len(areas) == 20
+    assert len(areas) == 23
     cities = {a.city for a in areas}
     assert len(cities) == 19
     assert not {"嘉義縣", "連江縣", "金門縣"} & cities
@@ -261,3 +272,27 @@ def test_metro_trip_has_a_single_option(base):
     back = _home_options(ctx, req, cityhall, to_min("21:00"), every=True)
     assert [(o.label, o.fare) for o in go] == [("捷運板南線", 45)]
     assert [o.label for o in back] == ["捷運板南線"]
+
+
+# 範圍縮小到桃園時，出發站和商圈都在桃園市內
+TAOYUAN_ORIGINS = ["tyn-taoyuan", "tyn-zhongli", "tyn-hsr", "tyn-bade"]
+TAOYUAN_AREAS = ["桃園市/桃園區", "桃園市/青埔", "桃園市/中壢", "桃園市/八德"]
+
+
+def test_taoyuan_origins(base):
+    stations = base.scalars(select(Station).where(Station.city == "桃園市", Station.is_origin.is_(True))).all()
+    assert sorted(s.id for s in stations) == sorted(TAOYUAN_ORIGINS)
+
+
+@pytest.mark.parametrize("origin", TAOYUAN_ORIGINS)
+@pytest.mark.parametrize("area_id", TAOYUAN_AREAS)
+def test_taoyuan_origin_reaches_taoyuan_area(base, origin, area_id):
+    """下午兩點出門到得了，晚上十點前也有車回得去（考慮首末班車）。"""
+    graph = services.load_graph(base)
+    stations = _area_stations(base, area_id)
+    assert stations, area_id
+    assert any(
+        graph.earliest_arrival(origin, to_min("14:00"), s) is not None
+        and graph.latest_departure(s, origin, to_min("22:00")) is not None
+        for s in stations
+    ), (origin, area_id)
