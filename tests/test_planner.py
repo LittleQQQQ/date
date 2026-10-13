@@ -264,8 +264,9 @@ def test_top_restaurants_prefer_date_fit_then_walk(monkeypatch):
         )
         return NS(restaurant=restaurant, showtime=NS(cinema=cinema), tightest=30, walk_total=10, cost=500)
 
-    by_name = {"甲": [cand("甲", 0.9, 25.0)], "乙": [cand("乙", 0.5, 25.006)], "丙": [cand("丙", 0.5, 25.001)]}
-    assert planner._top_restaurants(PlanRequest(date="2026-10-13"), "某片", by_name) == ["甲", "丙"]
+    # 乙、丙約會適合度一樣；乙比較近，但店名排序在丙後面，所以是靠步行距離勝出
+    by_name = {"甲": [cand("甲", 0.9, 25.0)], "乙": [cand("乙", 0.5, 25.001)], "丙": [cand("丙", 0.5, 25.006)]}
+    assert planner._top_restaurants(PlanRequest(date="2026-10-13"), "某片", by_name) == ["甲", "乙"]
 
 
 def test_user_choice_survives_trimming(monkeypatch):
@@ -308,8 +309,9 @@ def test_enough_buffer_counts_as_a_tie_so_more_showings_win(monkeypatch):
     def group(tightest, starts):
         return [NS(showtime=NS(genre="", start=s, cinema=NS(name="影城"), label="數位"), tightest=tightest) for s in starts]
 
-    by_movie = {"空檔多": group(270, [900]), "場次多": group(40, [1080, 1200, 1320])}
-    assert planner._top_movies(PlanRequest(date="2026-10-13"), by_movie) == ["場次多"]
+    # 乙場次多、丙下午場特別空；片名排序丙在前，所以乙是靠場次數勝出
+    by_movie = {"丙": group(270, [900]), "乙": group(40, [1080, 1200, 1320])}
+    assert planner._top_movies(PlanRequest(date="2026-10-13"), by_movie) == ["乙"]
 
 
 def test_trim_note_does_not_mention_genre_when_none_wanted(session, saturday, monkeypatch):
