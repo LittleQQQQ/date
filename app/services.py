@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import datetime as dt
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, true
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -31,7 +31,7 @@ from .models import Area, Cinema, Movie, Restaurant, ScrapeRun, Showtime, Statio
 from .planner import Place, PlanContext, RestaurantInfo, ShowtimeInfo
 from .regions import TAIWAN_CITIES
 from .schemas import PlanRequest
-from .scope import is_open, require_open, require_open_area
+from .scope import active_cities, is_open, require_open, require_open_area
 from .timeutil import WEEKDAY_KEYS, fmt, to_min, today_tw, weekday_label
 from .transit import Edge, Node, TransitGraph
 
@@ -310,6 +310,12 @@ def check_route(session: Session, origin: str, area: str = "台北市/信義", d
 SOURCE_LABELS = {"atmovies": "開眼", "osm": "OSM", "base": "商圈與交通", "fixture": "示意資料"}
 
 
+def _in_open_area(area_id_column):
+    """資料列的商圈在開放範圍內（見 app/scope.py）；沒設範圍就不限。"""
+    cities = active_cities()
+    return area_id_column.in_(select(Area.id).where(Area.city.in_(cities))) if cities else true()
+
+
 def data_status(session: Session) -> dict:
     runs = session.scalars(select(ScrapeRun).where(ScrapeRun.status == "ok").order_by(ScrapeRun.finished_at.desc())).all()
     latest: dict[str, ScrapeRun] = {}
@@ -324,7 +330,12 @@ def data_status(session: Session) -> dict:
         for run in latest.values()
     ]
     has_showtimes = bool(
-        session.scalar(select(func.count()).select_from(Showtime).where(Showtime.date >= today_tw().isoformat()))
+        session.scalar(
+            select(func.count())
+            .select_from(Showtime)
+            .join(Cinema, Showtime.cinema_id == Cinema.id)
+            .where(Showtime.date >= today_tw().isoformat(), _in_open_area(Cinema.area_id))
+        )
     )
     return {"sources": sources, "is_demo": "fixture" in latest, "has_showtimes": has_showtimes}
 
@@ -368,6 +379,18 @@ def list_cities(session: Session) -> list[dict]:
     return cities
 
 
+def _open_movie_titles(session: Session) -> list[str]:
+    """片名清單（給網頁與聊天比對）；有設開放範圍時，只列開放縣市的影城有場次的片。"""
+    query = select(Movie.title)
+    if active_cities():
+        query = (
+            query.join(Showtime, Showtime.movie_id == Movie.id)
+            .join(Cinema, Showtime.cinema_id == Cinema.id)
+            .where(_in_open_area(Cinema.area_id))
+        )
+    return sorted(set(session.scalars(query)))
+
+
 def meta(session: Session) -> dict:
     cities = list_cities(session)
     return {
@@ -375,7 +398,7 @@ def meta(session: Session) -> dict:
         "cities": cities,
         "areas": [{"id": a["id"], "name": a["name"], "city": c["name"]} for c in cities for a in c["areas"]],
         "origins": [{"id": o["id"], "name": o["name"], "city": c["name"]} for c in cities for o in c["origins"]],
-        "movies": sorted(set(session.scalars(select(Movie.title)))),
+        "movies": _open_movie_titles(session),
         "options": {
             "screen_types": list(SCREEN.options),
             "audio": list(AUDIO.options),
@@ -385,8 +408,10 @@ def meta(session: Session) -> dict:
             "meal_minutes": MEAL_MINUTES,
         },
         "counts": {
-            "cinemas": session.scalar(select(func.count()).select_from(Cinema)),
-            "restaurants": session.scalar(select(func.count()).select_from(Restaurant)),
+            "cinemas": session.scalar(select(func.count()).select_from(Cinema).where(_in_open_area(Cinema.area_id))),
+            "restaurants": session.scalar(
+                select(func.count()).select_from(Restaurant).where(_in_open_area(Restaurant.area_id))
+            ),
         },
         "jev": {"mode": settings.jev_mode, "threshold": settings.jev_confidence_threshold},
         "llm": {"model": settings.ollama_model},
