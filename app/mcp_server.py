@@ -20,7 +20,7 @@ mcp = MCPServer(
     "date-planner",
     title="約會一條龍",
     instructions=(
-        "排出「電影＋餐廳＋交通」的約會行程，涵蓋全台。先用 list_areas 查有哪些商圈與出發站，再呼叫 plan_date。"
+        "排出「電影＋餐廳＋交通」的約會行程。先用 list_areas 查目前開放的商圈與出發站，再呼叫 plan_date。"
         "結果裡的 confirmations 是 Jev 沒把握的判斷，請使用者選完後把答案放進 overrides 再呼叫一次。"
     ),
 )
@@ -28,7 +28,7 @@ mcp = MCPServer(
 
 @mcp.tool(structured_output=True)
 def list_areas() -> list[dict[str, Any]]:
-    """列出全台 22 縣市、各縣市有資料的商圈（含可選日期與當天上映的片）和可以出發的車站。"""
+    """列出目前開放的縣市（ACTIVE_CITIES）、各縣市有資料的商圈（含可選日期與當天上映的片）和可以出發的車站。"""
     with SessionLocal() as session:
         return services.list_cities(session)
 
@@ -88,7 +88,10 @@ def plan_date(
 def search_showtimes(date: str, area: str = "台北市/信義", movie_query: str = "") -> list[dict[str, Any]]:
     """查某天某商圈的電影場次。給 movie_query 時，只回傳 Jev 判斷可能是這部片的場次。"""
     with SessionLocal() as session:
-        return services.search_showtimes(session, _date(date), area, movie_query)
+        try:
+            return services.search_showtimes(session, _date(date), area, movie_query)
+        except ValueError as exc:
+            raise ToolError(str(exc)) from exc
 
 
 @mcp.tool(structured_output=True)

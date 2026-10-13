@@ -31,6 +31,7 @@ from .models import Area, Cinema, Movie, Restaurant, ScrapeRun, Showtime, Statio
 from .planner import Place, PlanContext, RestaurantInfo, ShowtimeInfo
 from .regions import TAIWAN_CITIES
 from .schemas import PlanRequest
+from .scope import is_open, require_open, require_open_area
 from .timeutil import WEEKDAY_KEYS, fmt, to_min, today_tw, weekday_label
 from .transit import Edge, Node, TransitGraph
 
@@ -92,9 +93,11 @@ def _area_and_origin(session: Session, area_id: str, origin: str) -> tuple[Area,
     area = session.get(Area, area_id)
     if area is None:
         raise ValueError(f"還沒有「{area_id}」這個商圈的資料")
+    require_open(area.city)
     station = resolve_station(session, origin)
     if station is None:
         raise ValueError(f"找不到出發站「{origin}」")
+    require_open(station.city)
     area_stations = list(session.scalars(select(Station).where(Station.area_id == area.id)))
     if not area_stations:
         raise ValueError(f"「{area.city}{area.name}」沒有可以抵達的車站資料")
@@ -208,6 +211,7 @@ def plan_date(session: Session, req: PlanRequest) -> dict:
 
 
 def search_showtimes(session: Session, date: dt.date, area: str = "台北市/信義", movie_query: str = "") -> list[dict]:
+    require_open_area(area)
     jev = JevService(session)
     rows = session.execute(
         select(Showtime, Cinema, Movie)
@@ -247,6 +251,7 @@ def find_restaurants(
     cinema = session.get(Cinema, cinema_id)
     if cinema is None:
         raise ValueError(f"找不到影城 {cinema_id}")
+    require_open_area(cinema.area_id)
     day = date or today_tw()
     jev = JevService(session)
     out = []
@@ -346,7 +351,7 @@ def available_dates(session: Session) -> dict[str, list[dict]]:
 
 
 def list_cities(session: Session) -> list[dict]:
-    """全台 22 縣市，附上各縣市有資料的商圈（含可選日期）與出發站。"""
+    """開放範圍內的縣市（ACTIVE_CITIES，預設桃園市），附上各縣市有資料的商圈（含可選日期）與出發站。"""
     dates = available_dates(session)
     areas = session.scalars(select(Area).order_by(Area.id)).all()
     # 轉乘時間長的通常是大站（台北車站、左營），排前面當預設出發站
@@ -355,6 +360,8 @@ def list_cities(session: Session) -> list[dict]:
     ).all()
     cities = []
     for region, city in TAIWAN_CITIES:
+        if not is_open(city):
+            continue
         city_areas = [{"id": a.id, "name": a.name, "dates": dates[a.id]} for a in areas if a.city == city and a.id in dates]
         city_origins = [{"id": s.id, "name": s.name} for s in origins if s.city == city]
         cities.append({"name": city, "region": region, "areas": city_areas, "origins": city_origins})

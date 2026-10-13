@@ -1,4 +1,4 @@
-"""全台 22 縣市。下拉選單一律列出全部縣市；沒有資料的縣市會標成「尚無資料」。"""
+"""全台 22 縣市。下拉選單列出開放範圍內的縣市（ACTIVE_CITIES，見 app/scope.py）；沒有資料的縣市會標成「尚無資料」。"""
 from __future__ import annotations
 
 TAIWAN_CITIES: tuple[tuple[str, str], ...] = (

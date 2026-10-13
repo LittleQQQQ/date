@@ -5,6 +5,7 @@
 """
 from __future__ import annotations
 
+from collections.abc import Collection
 from dataclasses import dataclass, field
 
 from sqlalchemy import select
@@ -52,9 +53,12 @@ class Coverage:
         return next(a for a in self.areas if a.id == area_id)
 
 
-def load_coverage(session: Session) -> Coverage:
+def load_coverage(session: Session, cities: Collection[str] = ()) -> Coverage:
+    """cities 有值時只載入這些縣市的商圈（爬蟲用，見 app/scope.py）；空的代表全部。"""
     areas = []
     for area in session.scalars(select(Area).order_by(Area.id)):
+        if cities and area.city not in cities:
+            continue
         stations = [Point(s.lat, s.lng) for s in session.scalars(select(Station).where(Station.area_id == area.id))]
         if not stations:
             continue
