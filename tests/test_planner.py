@@ -240,12 +240,14 @@ def test_top_movies_prefers_wanted_genre_then_buffer(monkeypatch):
     def cand(genre, tightest):
         return NS(showtime=NS(genre=genre, start=1080, cinema=NS(name="影城"), label="數位"), tightest=tightest)
 
-    by_movie = {"甲": [cand("動作", 60)], "乙": [cand("愛情", 10)], "丙": [cand("動作", 30)]}
+    # 緩衝都在 30 分鐘內，才比得出寬窄（超過 30 分鐘算一樣）
+    by_movie = {"甲": [cand("動作", 25)], "乙": [cand("愛情", 10)], "丙": [cand("動作", 20)]}
     assert planner._top_movies(PlanRequest(date="2026-10-13", genre="愛情"), by_movie) == ["乙", "甲"]
     assert planner._top_movies(PlanRequest(date="2026-10-13"), by_movie) == ["甲", "丙"]
 
 
-def test_top_restaurants_prefer_wanted_cuisine_then_date_fit(monkeypatch):
+def test_top_restaurants_prefer_date_fit_then_walk(monkeypatch):
+    """料理類型在前面已經篩過（不符合的店不會進到這裡），所以排序看約會適合度，再看離影城多近。"""
     from types import SimpleNamespace as NS
 
     from app import planner
@@ -254,14 +256,71 @@ def test_top_restaurants_prefer_wanted_cuisine_then_date_fit(monkeypatch):
     monkeypatch.setattr(planner, "MAX_CHOICE_OPTIONS", 2)
     cinema = Place(1, "影城", 25.0, 121.5)
 
-    def cand(name, cuisine, date_fit):
+    def cand(name, date_fit, lat):
         restaurant = NS(
-            place=Place(name, name, 25.0, 121.5),
-            cuisine=NS(top=cuisine),
+            place=Place(name, name, lat, 121.5),
+            cuisine=NS(top="日式"),
             date_fit=NS(prob=lambda option, p=date_fit: p if option == "適合約會" else 0.0),
         )
         return NS(restaurant=restaurant, showtime=NS(cinema=cinema), tightest=30, walk_total=10, cost=500)
 
-    by_name = {"甲": [cand("甲", "日式", 0.9)], "乙": [cand("乙", "泰式／南洋", 0.2)], "丙": [cand("丙", "日式", 0.5)]}
-    assert planner._top_restaurants(PlanRequest(date="2026-10-13", cuisines=["泰式／南洋"]), by_name) == ["乙", "甲"]
-    assert planner._top_restaurants(PlanRequest(date="2026-10-13"), by_name) == ["甲", "丙"]
+    by_name = {"甲": [cand("甲", 0.9, 25.0)], "乙": [cand("乙", 0.5, 25.006)], "丙": [cand("丙", 0.5, 25.001)]}
+    assert planner._top_restaurants(PlanRequest(date="2026-10-13"), "某片", by_name) == ["甲", "丙"]
+
+
+def test_user_choice_survives_trimming(monkeypatch):
+    """使用者在改選清單點過的片或餐廳，就算排名掉到上限以外也要留著，否則選擇會被默默丟掉。"""
+    from types import SimpleNamespace as NS
+
+    from app import planner
+    from app.planner import Place
+
+    monkeypatch.setattr(planner, "MAX_CHOICE_OPTIONS", 2)
+
+    def movie(tightest):
+        return NS(showtime=NS(genre="", start=1080, cinema=NS(name="影城"), label="數位"), tightest=tightest)
+
+    by_movie = {"甲": [movie(60)], "乙": [movie(50)], "丙": [movie(5)]}
+    req = PlanRequest(date="2026-10-13")
+    req.overrides = {f"movie_choice:{planner._subject(req)}": "丙"}
+    assert "丙" in planner._top_movies(req, by_movie)
+
+    cinema = Place(1, "影城", 25.0, 121.5)
+
+    def restaurant(name, date_fit):
+        r = NS(place=Place(name, name, 25.0, 121.5), cuisine=NS(top="日式"),
+               date_fit=NS(prob=lambda option, p=date_fit: p if option == "適合約會" else 0.0))
+        return NS(restaurant=r, showtime=NS(cinema=cinema), tightest=30, walk_total=10, cost=500)
+
+    by_name = {"甲": [restaurant("甲", 0.9)], "乙": [restaurant("乙", 0.8)], "丙": [restaurant("丙", 0.1)]}
+    req.overrides = {f"restaurant_choice:{planner._subject(req, '某片')}": "丙"}
+    assert "丙" in planner._top_restaurants(req, "某片", by_name)
+
+
+def test_enough_buffer_counts_as_a_tie_so_more_showings_win(monkeypatch):
+    """緩衝超過 30 分鐘都算夠寬裕；這時場次多的片排前面，不是下午場特別空的片。"""
+    from types import SimpleNamespace as NS
+
+    from app import planner
+
+    monkeypatch.setattr(planner, "MAX_CHOICE_OPTIONS", 1)
+
+    def group(tightest, starts):
+        return [NS(showtime=NS(genre="", start=s, cinema=NS(name="影城"), label="數位"), tightest=tightest) for s in starts]
+
+    by_movie = {"空檔多": group(270, [900]), "場次多": group(40, [1080, 1200, 1320])}
+    assert planner._top_movies(PlanRequest(date="2026-10-13"), by_movie) == ["場次多"]
+
+
+def test_trim_note_does_not_mention_genre_when_none_wanted(session, saturday, monkeypatch):
+    from app import planner
+
+    monkeypatch.setattr(planner, "MAX_CHOICE_OPTIONS", 3)
+    req = PlanRequest(date=saturday, origin="板橋", depart_after="12:00", home_by="24:30")
+    res, asked = _plan_capturing_questions(session, req)
+    movie_note = next(n for n in res["notes"] if "挑 3 部" in n)
+    assert "片型" not in movie_note
+    # 方案裡的片與餐廳都在問過 Jev 的選項裡
+    options = {o for q in asked if q.key in ("movie_choice", "restaurant_choice") for o in q.options}
+    for p in res["plans"]:
+        assert p["movie"]["title"] in options and p["restaurant"]["name"] in options

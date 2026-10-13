@@ -440,25 +440,28 @@ def _logistics_key(c: Candidate) -> tuple:
 
 
 def _top_movies(req: PlanRequest, by_movie: dict[str, list[Candidate]]) -> list[str]:
-    """要給 Jev 選的片：符合想看的片型 → 最寬裕的緩衝 → 排得進去的場次多 → 片名，取前 MAX_CHOICE_OPTIONS 部。"""
+    """要給 Jev 選的片，取前 MAX_CHOICE_OPTIONS 部：使用者在改選清單點過的片 → 符合想看的片型 →
+    緩衝夠寬裕（超過 30 分鐘都算一樣，和 _logistics_key 相同）→ 排得進去的場次多 → 片名。"""
+    chosen = req.overrides.get(f"movie_choice:{_subject(req)}")
 
     def key(title: str) -> tuple:
         group = by_movie[title]
         slots = {(c.showtime.start, c.showtime.cinema.name, c.showtime.label) for c in group}
         wanted = bool(req.genre) and group[0].showtime.genre == req.genre
-        return (not wanted, -max(c.tightest for c in group), -len(slots), title)
+        return (title != chosen, not wanted, -min(max(c.tightest for c in group), 30), -len(slots), title)
 
     return sorted(by_movie, key=key)[:MAX_CHOICE_OPTIONS]
 
 
-def _top_restaurants(req: PlanRequest, by_name: dict[str, list[Candidate]]) -> list[str]:
-    """要給 Jev 選的餐廳：符合想吃的料理 → Jev 判斷的約會適合度 → 離影城近 → 店名，取前 MAX_CHOICE_OPTIONS 家。"""
+def _top_restaurants(req: PlanRequest, movie: str, by_name: dict[str, list[Candidate]]) -> list[str]:
+    """要給 Jev 選的餐廳，取前 MAX_CHOICE_OPTIONS 家：使用者在改選清單點過的店 → Jev 判斷的約會適合度 →
+    離影城近 → 店名。（想吃的料理在 _keep_restaurant 已經篩過，到這裡的店都符合。）"""
+    chosen = req.overrides.get(f"restaurant_choice:{_subject(req, movie)}")
 
     def key(name: str) -> tuple:
         best = max(by_name[name], key=_logistics_key)
         r = best.restaurant
-        wanted = bool(req.cuisines) and r.cuisine.top in req.cuisines
-        return (not wanted, -r.date_fit.prob("適合約會"), walk_minutes(best.showtime.cinema, r.place), name)
+        return (name != chosen, -r.date_fit.prob("適合約會"), walk_minutes(best.showtime.cinema, r.place), name)
 
     return sorted(by_name, key=key)[:MAX_CHOICE_OPTIONS]
 
@@ -495,7 +498,7 @@ def _ask_restaurant(
     by_restaurant: dict[str, list[Candidate]] = defaultdict(list)
     for c in group:
         by_restaurant[c.restaurant.place.name].append(c)
-    by_restaurant = {name: by_restaurant[name] for name in _top_restaurants(req, by_restaurant)}
+    by_restaurant = {name: by_restaurant[name] for name in _top_restaurants(req, movie, by_restaurant)}
     names = sorted(by_restaurant)
     question = restaurant_choice_question(movie, names)
     if len(names) == 1:
@@ -540,7 +543,8 @@ def _jev_pick(
         by_movie[c.showtime.movie_title].append(c)
     titles = _top_movies(req, by_movie)
     if len(titles) < len(by_movie):
-        notes.append(f"排得進去的片有 {len(by_movie)} 部，程式先依想看的片型與時間餘裕挑 {len(titles)} 部讓 Jev 選。")
+        basis = "想看的片型與時間餘裕" if req.genre else "時間餘裕與場次多寡"
+        notes.append(f"排得進去的片有 {len(by_movie)} 部，程式先依{basis}挑 {len(titles)} 部讓 Jev 選。")
         by_movie = {title: by_movie[title] for title in titles}
 
     movie_ans = _ask_movie(req, ctx, by_movie)
@@ -553,7 +557,7 @@ def _jev_pick(
         rest_ans, by_restaurant = _ask_restaurant(req, ctx, movie, by_movie[movie])
         total = len({c.restaurant.place.name for c in by_movie[movie]})
         restaurant_note = (
-            f"配得上的餐廳超過 {MAX_CHOICE_OPTIONS} 家時，程式先依想吃的料理、約會適合度與步行距離挑 {MAX_CHOICE_OPTIONS} 家讓 Jev 選。"
+            f"配得上的餐廳超過 {MAX_CHOICE_OPTIONS} 家時，程式先依約會適合度與步行距離挑 {MAX_CHOICE_OPTIONS} 家讓 Jev 選。"
         )
         if len(by_restaurant) < total and restaurant_note not in notes:
             notes.append(restaurant_note)

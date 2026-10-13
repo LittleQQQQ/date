@@ -110,3 +110,14 @@ def test_fixture_import_does_not_remove_anything(mem_session):
 
     assert mem_session.get(Area, OLD_AREA) is not None
     assert mem_session.get(Station, "khh-old") is not None
+
+
+def test_empty_base_data_is_a_failed_import_not_a_wipe(mem_session, tmp_path):
+    """data/fixture 不小心變空時，不能把整個路網和爬到的資料清掉。"""
+    run_collector(mem_session, FixtureCollector(), judge=False)
+    before = {model: _count(mem_session, model) for model in (Area, Station, TransitLink, Cinema, Restaurant, Showtime)}
+
+    run = run_collector(mem_session, BaseCollector(folder=tmp_path), judge=False)
+
+    assert run.status == "error" and "商圈" in run.error
+    assert {model: _count(mem_session, model) for model in before} == before
