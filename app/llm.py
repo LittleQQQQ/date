@@ -287,6 +287,10 @@ async def parse_request(text: str, today: dt.date, meta: dict) -> tuple[dict, di
 # ---------- 摘要 ----------
 
 
+def _trip_phrase(direction: str, trip: dict) -> str:
+    return f"{direction}步行" if trip["choice"] == "步行" else f"{direction}搭{trip['choice']}"
+
+
 def template_summary(result: dict) -> str:
     plans = result.get("plans") or []
     if not plans:
@@ -300,11 +304,14 @@ def template_summary(result: dict) -> str:
     best = plans[0]
     m, r = best["movie"], best["restaurant"]
     feasible = result.get("stats", {}).get("feasible", len(plans))
+    go, back = best["transit"]["go"], best["transit"]["back"]
     return (
         f"從 {feasible} 個接得起來的組合裡，Jev 選出 {len(plans)} 個方案。"
         + "".join(result.get("notes") or [])
         + f"Jev 首選：{m['start']} 在{m['cinema']}看《{m['title']}》（{m['label']}），{best['order_text']}，"
-        f"到{r['name']}用餐，{best['leave_home']} 出門、{best['arrive_home']} 到家，每人約 {best['cost_per_person']} 元。"
+        f"到{r['name']}用餐；{_trip_phrase('去程', go)}、{_trip_phrase('回程', back)}，"
+        f"{best['leave_home']} 出門、{best['arrive_home']} 到家，"
+        f"每人約 {best['cost_per_person']} 元（含來回車資約 {go['fare'] + back['fare']} 元）。"
     )
 
 

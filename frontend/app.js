@@ -291,9 +291,9 @@ function renderConfirmations(items) {
   return html;
 }
 
-function choiceRow(label, c) {
+function choiceRow(label, c, only = "只有這個選項排得進去") {
   const pct = Math.round(c.prob * 100);
-  const who = c.source === "user" ? "（你指定或確認的）" : c.source === "program" ? "（只有這個選項排得進去）" : `（Jev 第 ${c.rank} 名）`;
+  const who = c.source === "user" ? "（你指定或確認的）" : c.source === "program" ? `（${only}）` : `（Jev 第 ${c.rank} 名）`;
   return `
     <li>
       <span class="q">${esc(label)}</span>
@@ -315,7 +315,7 @@ function renderJev(p) {
   return `
     <details class="jev"><summary>Jev 怎麼選、怎麼判斷的</summary>
       <h4>Jev 的選擇</h4>
-      <ul>${choiceRow("看哪部片", p.jev_choice.movie)}${choiceRow("吃哪一家", p.jev_choice.restaurant)}</ul>
+      <ul>${choiceRow("看哪部片", p.jev_choice.movie)}${choiceRow("吃哪一家", p.jev_choice.restaurant)}${choiceRow("去程搭什麼", p.jev_choice.go, "只有這種走法接得上")}${choiceRow("回程搭什麼", p.jev_choice.back, "只有這種走法接得上")}</ul>
       <h4>屬性判斷（用來篩選與估算時間）</h4>
       <ul>${attributes.join("")}</ul>
     </details>`;
@@ -334,6 +334,8 @@ function renderPlan(p) {
   const estimates = p.estimates?.length
     ? `<ul class="flags">${p.estimates.map((e) => `<li>${esc(e)}</li>`).join("")}</ul>`
     : "";
+  const b = p.cost_breakdown;
+  const costLine = `<p class="cost-line">每人花費：電影票 $${b.movie.toLocaleString()}・餐費 $${b.meal.toLocaleString()}・去程車資 $${b.go.toLocaleString()}・回程車資 $${b.back.toLocaleString()}</p>`;
   return `
     <article class="card plan">
       <header>
@@ -349,6 +351,7 @@ function renderPlan(p) {
         <div><dt>每人</dt><dd>$${p.cost_per_person.toLocaleString()}</dd></div>
         <div><dt>最緊緩衝</dt><dd>${p.tightest_buffer_min} 分</dd></div>
       </dl>
+      ${costLine}
       ${flags}${estimates}
       <ol class="timeline">${steps}</ol>
       ${tips}

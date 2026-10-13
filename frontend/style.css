@@ -147,6 +147,8 @@ select:focus, button:focus-visible { outline: 2px solid var(--accent); outline-o
 .flags li { background: var(--warn-bg); color: var(--warn-ink); border-radius: 8px; padding: 6px 10px; font-size: 14px; }
 .tips { margin: 0; font-size: 14px; color: var(--muted); }
 
+.plan .cost-line { margin: 6px 0 0; font-size: 13px; color: var(--muted); }
+
 .timeline { list-style: none; margin: 0; padding: 0; position: relative; }
 .timeline li { display: grid; grid-template-columns: 88px 1fr; gap: 10px; padding: 6px 0; position: relative; }
 .timeline time { font-family: var(--mono); font-size: 14px; color: var(--muted); white-space: nowrap; }
