@@ -61,7 +61,7 @@ function stationLabel(name) {
 }
 
 function cityOptions(hasData) {
-  // 全台 22 縣市依地區分組；沒有資料的縣市可以看到但不能選
+  // 開放範圍內的縣市依地區分組；沒有資料的縣市可以看到但不能選
   const groups = new Map();
   for (const city of state.meta.cities) {
     if (!groups.has(city.region)) groups.set(city.region, []);

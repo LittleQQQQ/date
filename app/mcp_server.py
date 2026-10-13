@@ -20,7 +20,7 @@ mcp = MCPServer(
     "date-planner",
     title="約會一條龍",
     instructions=(
-        "排出「電影＋餐廳＋交通」的約會行程，涵蓋全台。先用 list_areas 查有哪些商圈與出發站，再呼叫 plan_date。"
+        "排出「電影＋餐廳＋交通」的約會行程。先用 list_areas 查目前開放的商圈與出發站，再呼叫 plan_date。"
         "結果裡的 confirmations 是 Jev 沒把握的判斷，請使用者選完後把答案放進 overrides 再呼叫一次。"
     ),
 )
@@ -28,7 +28,7 @@ mcp = MCPServer(
 
 @mcp.tool(structured_output=True)
 def list_areas() -> list[dict[str, Any]]:
-    """列出全台 22 縣市、各縣市有資料的商圈（含可選日期與當天上映的片）和可以出發的車站。"""
+    """列出目前開放的縣市（ACTIVE_CITIES）、各縣市有資料的商圈（含可選日期與當天上映的片）和可以出發的車站。"""
     with SessionLocal() as session:
         return services.list_cities(session)
 
@@ -58,9 +58,9 @@ def plan_date(
     max_walk_min: int = 12,
     overrides: dict[str, str] | None = None,
 ) -> dict[str, Any]:
-    """排出約會行程：電影＋餐廳＋大眾運輸（可跨縣市）。看哪部片、吃哪一家由 Jev 選，回傳 Jev 的前三名組合；每個方案的去程、回程搭什麼也由 Jev 從接得上、付得起的走法裡選（transit 列出各種走法與估計車資）。
+    """排出約會行程：電影＋餐廳＋大眾運輸（出發站和商圈都要在開放範圍內）。看哪部片、吃哪一家由 Jev 選，回傳 Jev 的前三名組合；每個方案的去程、回程搭什麼也由 Jev 從接得上、付得起的走法裡選（transit 列出各種走法與估計車資）。
 
-    area 為商圈代碼（縣市/商圈，例如 台中市/七期）；origin 為出發站代碼或站名，可以和商圈在不同縣市。
+    area 為商圈代碼（縣市/商圈，例如 桃園市/中壢）；origin 為出發站代碼或站名；兩者都要在開放範圍內（先呼叫 list_areas 看有哪些）。
     movie_query 留空＝交給 Jev 選片；genre 是想看的片型、diet 是飲食限制，Jev 選擇時會參考。
     date 為 YYYY-MM-DD；時間為 24 小時制 HH:MM；字串留空、數字填 0 代表不限。
     meal_order：after＝看完電影再吃，before＝先吃再看，any＝都可以。
@@ -88,7 +88,10 @@ def plan_date(
 def search_showtimes(date: str, area: str = "台北市/信義", movie_query: str = "") -> list[dict[str, Any]]:
     """查某天某商圈的電影場次。給 movie_query 時，只回傳 Jev 判斷可能是這部片的場次。"""
     with SessionLocal() as session:
-        return services.search_showtimes(session, _date(date), area, movie_query)
+        try:
+            return services.search_showtimes(session, _date(date), area, movie_query)
+        except ValueError as exc:
+            raise ToolError(str(exc)) from exc
 
 
 @mcp.tool(structured_output=True)

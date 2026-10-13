@@ -71,7 +71,10 @@ async def post_chat(body: ChatRequest, session: Session = Depends(get_session)) 
 
 @router.get("/showtimes")
 def get_showtimes(date: dt.date, area: str = "信義", movie_query: str = "", session: Session = Depends(get_session)):
-    return services.search_showtimes(session, date, area, movie_query)
+    try:
+        return services.search_showtimes(session, date, area, movie_query)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
 
 
 @router.get("/restaurants")

@@ -12,6 +12,7 @@ os.environ["JEV_MODE"] = "mock"
 os.environ["OLLAMA_URL"] = ""
 os.environ["MCP_CLIENT_URL"] = ""
 os.environ["AUTO_REFRESH"] = "false"
+os.environ["ACTIVE_CITIES"] = ""
 
 
 @pytest.fixture(scope="session")
