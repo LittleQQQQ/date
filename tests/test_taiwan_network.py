@@ -217,3 +217,47 @@ def test_cross_county_rail_follows_the_real_lines(base, src, dst, line):
     """台南接左營（再續縱貫線到高雄）、新烏日直達員林、台北花蓮有直達車，不必繞路。"""
     links = base.scalars(select(TransitLink).where(TransitLink.from_station_id == src, TransitLink.to_station_id == dst))
     assert [link.line for link in links] == [line]
+
+
+def _plan_context(session, origin_id, area_id):
+    """只有交通的排程情境（沒有場次和餐廳），用來直接測找走法。"""
+    from app.planner import PlanContext, Place
+
+    def place(station):
+        return Place(station.id, station.name, station.lat, station.lng)
+
+    stations = session.scalars(select(Station).where(Station.area_id == area_id)).all()
+    return PlanContext(
+        origin=place(session.get(Station, origin_id)), area_stations=[place(s) for s in stations],
+        graph=services.load_graph(session), showtimes=[], restaurants=[], weekend=False, threshold=0.6, ask=None,
+    )
+
+
+def test_tainan_can_be_reached_without_high_speed_rail(base):
+    from app.planner import _out_options
+
+    ctx = _plan_context(base, "tpe-main", "台南市/中西區")
+    tainan = next(p for p in ctx.area_stations if p.id == "tnn-main")
+    early = PlanRequest(date="2026-10-13", depart_after="08:00")
+    options = _out_options(ctx, early, tainan, to_min("18:00"), every=True)
+    labels = [o.label for o in options]
+    assert any("高鐵" in label for label in labels) and any("高鐵" not in label for label in labels), labels
+    departs = [o.route.depart for o in options]
+    assert departs == sorted(departs, reverse=True)  # 由快到慢：越晚出門越前面
+    fares = [o.fare for o in options]
+    assert fares == sorted(fares, reverse=True)  # 慢的一定比較便宜，不然會被刪掉
+    # 下午兩點才能出門，只搭台鐵趕不上，剩下有搭高鐵的走法
+    late = PlanRequest(date="2026-10-13", depart_after="14:00")
+    assert all("高鐵" in o.label for o in _out_options(ctx, late, tainan, to_min("18:00"), every=True))
+
+
+def test_metro_trip_has_a_single_option(base):
+    from app.planner import _home_options, _out_options
+
+    ctx = _plan_context(base, "ntp-banqiao", "台北市/信義")
+    cityhall = next(p for p in ctx.area_stations if p.id == "tpe-cityhall")
+    req = PlanRequest(date="2026-10-13")
+    go = _out_options(ctx, req, cityhall, to_min("18:00"), every=True)
+    back = _home_options(ctx, req, cityhall, to_min("21:00"), every=True)
+    assert [(o.label, o.fare) for o in go] == [("捷運板南線", 45)]
+    assert [o.label for o in back] == ["捷運板南線"]

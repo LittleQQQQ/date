@@ -176,7 +176,7 @@ def test_plans_carry_estimates(session, saturday):
     res = _plan(session, saturday)
     assert res["plans"]
     for p in res["plans"]:
-        assert p["estimates"] == []  # 示意資料沒有估計欄位
+        assert p["estimates"] == ["車資為估計"]  # 示意資料的票價、餐廳都不是估計，只有車資是
         assert p["movie"]["estimated"] == [] and p["restaurant"]["estimated"] == []
 
 
@@ -326,3 +326,105 @@ def test_trim_note_does_not_mention_genre_when_none_wanted(session, saturday, mo
     options = {o for q in asked if q.key in ("movie_choice", "restaurant_choice") for o in q.options}
     for p in res["plans"]:
         assert p["movie"]["title"] in options and p["restaurant"]["name"] in options
+
+
+# ---------- 走法與車資 ----------
+
+
+def _trip(label, fare):
+    from types import SimpleNamespace as NS
+
+    return NS(label=label, fare=fare)
+
+
+def _search(*options, every=False):
+    """假的 TripSearch：every=False 時一開始只有最快的，expand() 之後才有其他走法。"""
+    from app.planner import TripSearch
+
+    return TripSearch(lambda e: list(options) if e else list(options[:1]), every)
+
+
+def test_distinct_drops_slower_and_pricier_trips():
+    from app.planner import _distinct
+
+    # 由快到慢：高鐵 → 高鐵轉公車（比較慢、也比較貴）→ 台鐵（慢但便宜）→ 同名的台鐵（更慢）
+    options = [_trip("高鐵", 1340), _trip("高鐵 → 公車", 1365), _trip("台鐵", 790), _trip("台鐵", 700)]
+    assert [(t.label, t.fare) for t in _distinct(options)] == [("高鐵", 1340), ("台鐵", 790)]
+
+
+def test_distinct_keeps_at_most_four():
+    from app.planner import _distinct
+
+    options = [_trip(f"走法{i}", 1000 - 100 * i) for i in range(6)]
+    assert [t.label for t in _distinct(options)] == ["走法0", "走法1", "走法2", "走法3"]
+
+
+def test_pick_trips_takes_the_fastest_when_affordable():
+    from app.planner import RouteChoice, _pick_trips
+
+    go, back = _search(_trip("高鐵", 700), _trip("台鐵", 375)), _search(_trip("高鐵", 700))
+    req = PlanRequest(date="2026-10-17", budget_per_person=3000)
+    assert [t.label for t in _pick_trips(req, 800, go, back, RouteChoice())] == ["高鐵", "高鐵"]
+    assert not go.every  # 付得起就不必找其他走法
+
+
+def test_budget_limits_the_return_trip():
+    from app.planner import RouteChoice, _pick_trips
+
+    go = _search(_trip("高鐵", 700), _trip("台鐵", 375))
+    back = _search(_trip("高鐵", 700), _trip("台鐵", 375))
+    # 電影加餐費 800：高鐵來回 2200 超出 2000；去程高鐵（800 + 700 + 最便宜回程 375 = 1875）付得起，
+    # 回程只剩 500 元，只能搭台鐵
+    req = PlanRequest(date="2026-10-17", budget_per_person=2000)
+    assert [t.label for t in _pick_trips(req, 800, go, back, RouteChoice())] == ["高鐵", "台鐵"]
+
+
+def test_budget_switches_both_ways_to_rail():
+    from app.planner import RouteChoice, _pick_trips
+
+    go = _search(_trip("高鐵", 700), _trip("台鐵", 375))
+    back = _search(_trip("高鐵", 700), _trip("台鐵", 375))
+    req = PlanRequest(date="2026-10-17", budget_per_person=1600)
+    assert [t.label for t in _pick_trips(req, 800, go, back, RouteChoice())] == ["台鐵", "台鐵"]
+
+
+def test_trip_over_budget_is_rejected():
+    import pytest
+
+    from app.planner import Reject, RouteChoice, _pick_trips
+
+    go = _search(_trip("高鐵", 700), _trip("台鐵", 375))
+    back = _search(_trip("高鐵", 700), _trip("台鐵", 375))
+    req = PlanRequest(date="2026-10-17", budget_per_person=1500)
+    with pytest.raises(Reject, match="^超過每人預算$"):
+        _pick_trips(req, 800, go, back, RouteChoice())
+
+
+def test_pick_trips_follows_the_chosen_labels():
+    from app.planner import RouteChoice, _pick_trips
+
+    go = _search(_trip("高鐵", 700), _trip("台鐵", 375), every=True)
+    back = _search(_trip("高鐵", 700), _trip("台鐵", 375), every=True)
+    req = PlanRequest(date="2026-10-17")
+    picked = _pick_trips(req, 800, go, back, RouteChoice(every=True, go="台鐵", back="台鐵"))
+    assert [t.label for t in picked] == ["台鐵", "台鐵"]
+    # 指定的走法付不起時，改用付得起的最快走法
+    tight = PlanRequest(date="2026-10-17", budget_per_person=1600)
+    picked = _pick_trips(tight, 800, go, back, RouteChoice(every=True, go="高鐵", back="高鐵"))
+    assert [t.label for t in picked] == ["台鐵", "台鐵"]
+
+
+def test_cost_includes_round_trip_fares(session, saturday):
+    res = _plan(session, saturday)
+    assert res["plans"]
+    for p in res["plans"]:
+        b = p["cost_breakdown"]
+        assert b["movie"] == p["movie"]["price"] and b["meal"] == p["restaurant"]["price"]
+        assert b["go"] > 0 and b["back"] > 0  # 板橋到信義要搭捷運
+        assert sum(b.values()) == p["cost_per_person"]
+
+
+def test_transit_steps_show_fares(session, saturday):
+    plan = _plan(session, saturday)["plans"][0]
+    rides = [s for s in plan["steps"] if s["kind"] == "transit"]
+    assert rides and all("車資約" in s["detail"] for s in rides)
