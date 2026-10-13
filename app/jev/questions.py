@@ -51,6 +51,14 @@ def restaurant_choice_question(movie: str, names: list[str]) -> Question:
     return Question("restaurant_choice", f"這次約會看《{movie}》，最適合去下面哪一家吃飯？", tuple(names))
 
 
+TRANSIT_KEYS = {"去程": "transit_go", "回程": "transit_back"}
+
+
+def transit_choice_question(direction: str, labels: list[str]) -> Question:
+    """direction 是「去程」或「回程」；選項是走法名稱，由快到慢。"""
+    return Question(TRANSIT_KEYS[direction], f"這次約會的{direction}，最適合哪一種走法？", tuple(labels))
+
+
 @dataclass
 class JevAnswer:
     key: str  # 題目＋對象，例如 date_fit:restaurant:3；使用者確認答案時也用這個 key

@@ -14,6 +14,7 @@ from .questions import (
     diet_question,
     movie_choice_question,
     restaurant_choice_question,
+    transit_choice_question,
 )
 from .service import JevService
 
@@ -34,4 +35,5 @@ __all__ = [
     "diet_question",
     "movie_choice_question",
     "restaurant_choice_question",
+    "transit_choice_question",
 ]

@@ -106,4 +106,5 @@ class BaseCollector(FixtureCollector):
             areas=[AreaRecord(**a) for a in data["areas"]],
             stations=[StationRecord(**s) for s in data["stations"]],
             transit_links=[link for item in data["transit_links"] for link in _links(item)],
+            replace_network=True,
         )

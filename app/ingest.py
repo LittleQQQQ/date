@@ -18,6 +18,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from .collectors import Batch, Collector, get_collector
+from .collectors.base import ScrapeError
 from .db import Base, SessionLocal, engine, schema_message, schema_problems
 from .config import settings
 from .jev import AUDIO, CUISINE, DATE_FIT, GENRE, MEAL_PACE, SCREEN, JevService
@@ -50,6 +51,39 @@ def _upsert(session: Session, model: type[T], source: str, record, fetched_at: d
     return row
 
 
+def _remove_stale_network(session: Session, batch: Batch) -> dict[str, int]:
+    """匯入完整的商圈與交通（base）後，刪掉資料檔裡已經沒有的路段、商圈與車站。
+
+    被刪掉的商圈裡爬蟲抓到的影城、場次、餐廳也一起刪；否則它們留在資料庫裡沒有車站可接，
+    永遠排不到，還會讓頁尾的餐廳數偏多。
+    """
+    if not batch.areas or not batch.stations:
+        # data/fixture 被清空或讀不到時，照常刪會把整個路網和爬到的資料全部清掉
+        raise ScrapeError("商圈與交通資料是空的（data/fixture 可能被清空），這次不匯入、也不刪除任何資料")
+    keep_links = {(l.from_station_id, l.to_station_id, l.line) for l in batch.transit_links}
+    stale_links = [
+        link for link in session.scalars(select(TransitLink))
+        if (link.from_station_id, link.to_station_id, link.line) not in keep_links
+    ]
+    for link in stale_links:
+        session.delete(link)
+    session.flush()
+
+    stale_areas = list(session.scalars(select(Area.id).where(Area.id.not_in({a.id for a in batch.areas}))))
+    cinema_ids = list(session.scalars(select(Cinema.id).where(Cinema.area_id.in_(stale_areas))))
+    # 刪除順序要照外鍵：場次參照影城、影城與車站參照商圈（PostgreSQL 會檢查，順序錯就失敗）
+    showtimes = session.execute(delete(Showtime).where(Showtime.cinema_id.in_(cinema_ids))).rowcount
+    cinemas = session.execute(delete(Cinema).where(Cinema.id.in_(cinema_ids))).rowcount
+    restaurants = session.execute(delete(Restaurant).where(Restaurant.area_id.in_(stale_areas))).rowcount
+    stations = session.execute(delete(Station).where(Station.id.not_in({s.id for s in batch.stations}))).rowcount
+    areas = session.execute(delete(Area).where(Area.id.in_(stale_areas))).rowcount
+    session.flush()
+    return {
+        "stale_transit_links": len(stale_links), "stale_showtimes": showtimes, "stale_cinemas": cinemas,
+        "stale_restaurants": restaurants, "stale_stations": stations, "stale_areas": areas,
+    }
+
+
 def upsert_batch(session: Session, source: str, batch: Batch) -> dict[str, int]:
     now = now_tw()
     counts: dict[str, int] = {}
@@ -77,6 +111,9 @@ def upsert_batch(session: Session, source: str, batch: Batch) -> dict[str, int]:
         row.source, row.fetched_at = source, now
         session.add(row)
     counts["transit_links"] = len(batch.transit_links)
+    if batch.replace_network:
+        session.flush()
+        counts.update(_remove_stale_network(session, batch))
 
     # 影城、餐廳要屬於資料庫裡有的商圈；爬蟲已經篩過，這裡再擋一次
     area_ids = set(session.scalars(select(Area.id)))

@@ -1,17 +1,30 @@
 {
-  "_note": "示意資料：影城、餐廳、場次皆為虛構；台鐵、公車車程與班次為估計值。",
+  "_note": "商圈、車站、交通為手寫估計值，新增公車站的座標取自 OpenStreetMap（2026-10-13）；影城、餐廳、場次（青埔）為虛構的測試資料。",
   "areas": [
-    {"id": "桃園市/青埔", "city": "桃園市", "name": "青埔"}
+    {"id": "桃園市/桃園區", "city": "桃園市", "name": "桃園區"},
+    {"id": "桃園市/青埔", "city": "桃園市", "name": "青埔"},
+    {"id": "桃園市/中壢", "city": "桃園市", "name": "中壢"},
+    {"id": "桃園市/八德", "city": "桃園市", "name": "八德"}
   ],
   "stations": [
-    {"id": "tyn-taoyuan", "name": "桃園", "city": "桃園市", "lat": 24.9891, "lng": 121.3135, "transfer_min": 4, "is_origin": true},
-    {"id": "tyn-zhongli", "name": "中壢", "city": "桃園市", "lat": 24.9536, "lng": 121.2257, "transfer_min": 4, "is_origin": true},
-    {"id": "tyn-hsr", "name": "高鐵桃園", "city": "桃園市", "lat": 25.0130, "lng": 121.2150, "transfer_min": 8, "is_origin": true, "area_id": "桃園市/青埔"}
+    {"id": "tyn-taoyuan", "name": "桃園", "city": "桃園市", "lat": 24.9891, "lng": 121.3135, "transfer_min": 4, "is_origin": true, "area_id": "桃園市/桃園區"},
+    {"id": "tyn-nanping", "name": "南平中正路口", "city": "桃園市", "lat": 25.018382, "lng": 121.299095, "transfer_min": 2, "is_origin": false, "area_id": "桃園市/桃園區"},
+    {"id": "tyn-zhongli", "name": "中壢", "city": "桃園市", "lat": 24.9536, "lng": 121.2257, "transfer_min": 4, "is_origin": true, "area_id": "桃園市/中壢"},
+    {"id": "tyn-sogo", "name": "太平洋SOGO", "city": "桃園市", "lat": 24.962084, "lng": 121.224673, "transfer_min": 2, "is_origin": false, "area_id": "桃園市/中壢"},
+    {"id": "tyn-dajiang", "name": "大江購物中心", "city": "桃園市", "lat": 25.000812, "lng": 121.229543, "transfer_min": 2, "is_origin": false, "area_id": "桃園市/中壢"},
+    {"id": "tyn-hsr", "name": "高鐵桃園", "city": "桃園市", "lat": 25.0130, "lng": 121.2150, "transfer_min": 8, "is_origin": true, "area_id": "桃園市/青埔"},
+    {"id": "tyn-bade", "name": "八德（介壽大智路口）", "city": "桃園市", "lat": 24.963762, "lng": 121.300255, "transfer_min": 2, "is_origin": true, "area_id": "桃園市/八德"}
   ],
   "transit_links": [
     {"from": "tyn-taoyuan", "to": "tyn-zhongli", "mode": "台鐵", "line": "台鐵縱貫線", "ride": 10, "headway": 15, "first": "05:30", "last": "24:00", "both_ways": true},
     {"from": "tyn-zhongli", "to": "tyn-hsr", "mode": "公車", "line": "公車（中壢—高鐵桃園）", "ride": 20, "headway": 20, "first": "06:00", "last": "22:30", "both_ways": true},
-    {"from": "tyn-taoyuan", "to": "tyn-hsr", "mode": "公車", "line": "公車（桃園—高鐵桃園）", "ride": 30, "headway": 20, "first": "06:00", "last": "22:30", "both_ways": true}
+    {"from": "tyn-taoyuan", "to": "tyn-hsr", "mode": "公車", "line": "公車（桃園—高鐵桃園）", "ride": 30, "headway": 20, "first": "06:00", "last": "22:30", "both_ways": true},
+    {"from": "tyn-taoyuan", "to": "tyn-nanping", "mode": "公車", "line": "公車（桃園車站—桃知道）", "ride": 15, "headway": 10, "first": "06:00", "last": "23:00", "both_ways": true},
+    {"from": "tyn-zhongli", "to": "tyn-sogo", "mode": "公車", "line": "公車（中壢車站—SOGO）", "ride": 5, "headway": 10, "first": "06:00", "last": "23:00", "both_ways": true},
+    {"from": "tyn-zhongli", "to": "tyn-dajiang", "mode": "公車", "line": "公車（中壢車站—大江）", "ride": 20, "headway": 20, "first": "06:00", "last": "23:00", "both_ways": true},
+    {"from": "tyn-hsr", "to": "tyn-dajiang", "mode": "公車", "line": "公車（高鐵桃園—大江）", "ride": 10, "headway": 20, "first": "06:00", "last": "23:00", "both_ways": true},
+    {"from": "tyn-taoyuan", "to": "tyn-bade", "mode": "公車", "line": "公車（桃園車站—八德）", "ride": 20, "headway": 15, "first": "06:00", "last": "23:00", "both_ways": true},
+    {"from": "tyn-zhongli", "to": "tyn-bade", "mode": "公車", "line": "公車（中壢車站—八德）", "ride": 30, "headway": 20, "first": "06:00", "last": "23:00", "both_ways": true}
   ],
   "cinemas": [
     {"external_id": "TYN-QP-C1", "name": "青埔影城", "area_id": "桃園市/青埔", "lat": 25.0125, "lng": 121.2172},

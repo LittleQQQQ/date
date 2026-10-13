@@ -23,7 +23,7 @@ class PlanRequest(BaseModel):
     screen_types: list[str] = Field(default_factory=list, description=f"想看的影廳：{'、'.join(SCREEN.options)}")
     audio: str = Field("", description=f"語言：{'、'.join(AUDIO.options)}，空字串代表不限")
     cuisines: list[str] = Field(default_factory=list, description=f"想吃的料理：{'、'.join(CUISINE.options)}")
-    budget_per_person: int = Field(0, ge=0, description="每人預算（電影票＋餐費），0 代表不限")
+    budget_per_person: int = Field(0, ge=0, description="每人預算（電影票＋餐費＋來回車資），0 代表不限")
     meal_order: Literal["any", "after", "before"] = Field("any", description="after＝看完電影再吃，before＝先吃再看")
     max_walk_min: int = Field(12, ge=1, le=30, description="影城和餐廳之間最多走幾分鐘")
     overrides: dict[str, str] = Field(default_factory=dict, description="使用者確認過的 Jev 答案：{key: 選項}")

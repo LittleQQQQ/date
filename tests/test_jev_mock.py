@@ -71,3 +71,37 @@ def test_genre_from_title_and_synopsis():
     assert _top(GENRE, horror)[0] == "恐怖" and max(horror) > 0.6
     unknown = genre({"movie": "週末的尼諾", "synopsis": "一個男孩的週末。"})
     assert max(unknown) < 0.6
+
+
+def test_transit_question_keys():
+    from app.jev import transit_choice_question
+
+    go = transit_choice_question("去程", ["高鐵", "台鐵"])
+    assert go.key == "transit_go" and go.options == ("高鐵", "台鐵")
+    assert go.text == "這次約會的去程，最適合哪一種走法？"
+    assert transit_choice_question("回程", ["高鐵"]).key == "transit_back"
+
+
+def test_transit_choice_weighs_time_against_fare():
+    from app.jev.mock import transit_choice
+
+    features = {
+        "高鐵": {"saved": 120, "transfers": 0, "fare": 700, "last_margin": None},
+        "台鐵": {"saved": 0, "transfers": 0, "fare": 375, "last_margin": None},
+    }
+    options = ("高鐵", "台鐵")
+    free = transit_choice(options, {"_features": features, "_budget_left": 0})
+    assert free[0] > 0.75 and abs(sum(free) - 1) < 1e-9  # 沒設預算：省兩小時值得
+    tight = transit_choice(options, {"_features": features, "_budget_left": 800})
+    assert tight[1] > 0.6  # 高鐵幾乎用光剩下的預算，改搭台鐵
+
+
+def test_transit_choice_avoids_the_last_train():
+    from app.jev.mock import transit_choice
+
+    features = {
+        "末班高鐵": {"saved": 10, "transfers": 0, "fare": 700, "last_margin": 5},
+        "早一班高鐵": {"saved": 0, "transfers": 0, "fare": 700, "last_margin": 40},
+    }
+    probs = transit_choice(("末班高鐵", "早一班高鐵"), {"_features": features, "_budget_left": 0})
+    assert probs[1] > probs[0]

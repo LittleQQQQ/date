@@ -39,7 +39,15 @@ CINEMAS = [
     ("嘉義秀泰影城", 23.494348, 120.444086, None),
     ("雲林北港秀泰", 23.569749, 120.299199, None),
     ("in89澎湖影城", 23.568284, 119.573911, "澎湖縣/馬公"),
-    ("金獅影城", 24.446036, 118.369248, "金門縣/金湖"),
+    ("金獅影城", 24.446036, 118.369248, None),  # 金門暫時排除：OSM 在影城附近沒有餐廳資料
+    ("桃園統領威秀影城", 24.9910614, 121.312373, "桃園市/桃園區"),
+    ("桃園站前in89豪華影城", 24.9911841, 121.312827, "桃園市/桃園區"),
+    ("桃園桃知道威秀影城", 25.0186174, 121.300141, "桃園市/桃園區"),
+    ("桃園新光影城", 25.017023, 121.212666, "桃園市/青埔"),
+    ("威尼斯影城", 24.961511, 121.224225, "桃園市/中壢"),
+    ("星橋國際影城", 25.0006585, 121.22921, "桃園市/中壢"),
+    ("國賓桃園八德", 24.96491, 121.299257, "桃園市/八德"),
+    ("中壢光影電影館", 24.936842, 121.238043, None),  # 小型藝術電影館，最近的中壢車站要走 39 分
 ]
 
 # 本島商圈：都要能從台北車站去、也回得來
@@ -47,7 +55,10 @@ MAIN_ISLAND_AREAS = [
     "台北市/信義",
     "台北市/西門町",
     "新北市/板橋",
+    "桃園市/桃園區",
     "桃園市/青埔",
+    "桃園市/中壢",
+    "桃園市/八德",
     "台中市/七期",
     "台南市/中西區",
     "高雄市/三多",
@@ -99,10 +110,9 @@ def test_dome_is_only_a_transfer_station_now(base):
     assert dome.area_id is None and dome.is_origin
 
 
-# 離島商圈：只能從島上的出發站去
+# 離島商圈：只能從島上的出發站去（金門暫時排除）
 ISLAND_AREAS = {
     "澎湖縣/馬公": ["pen-magong"],
-    "金門縣/金湖": ["kin-jincheng", "kin-shanwai"],
 }
 
 
@@ -116,12 +126,17 @@ def test_island_area_only_reachable_from_the_island(base, area_id, island_origin
         assert _reachable_both_ways(graph, origin, stations), (area_id, origin)
 
 
-def test_twenty_cities_have_areas(base):
+def test_nineteen_cities_have_areas(base):
     areas = base.scalars(select(Area)).all()
-    assert len(areas) == 21
+    assert len(areas) == 23
     cities = {a.city for a in areas}
-    assert len(cities) == 20
-    assert "嘉義縣" not in cities and "連江縣" not in cities
+    assert len(cities) == 19
+    assert not {"嘉義縣", "連江縣", "金門縣"} & cities
+
+
+def test_kinmen_is_excluded_for_now(base):
+    """金門的影城附近 OSM 幾乎沒有標記餐廳，排不出方案，先不列；車站也不留。"""
+    assert not base.scalars(select(Station).where(Station.city == "金門縣")).all()
 
 
 def test_every_area_has_a_station(base):
@@ -174,10 +189,10 @@ def test_station_names_never_render_a_doubled_zhan(base):
 
 def test_island_origin_to_main_island_has_a_clear_message(base):
     req = PlanRequest(date="2026-10-13", origin="tpe-main", area="澎湖縣/馬公")
-    with pytest.raises(ValueError, match="只能從島上出發"):
+    with pytest.raises(ValueError, match="^澎湖只能從島上出發，請改選島上的出發站（例如馬公總站）$"):
         services.plan_date(base, req)
     req = PlanRequest(date="2026-10-13", origin="pen-magong", area="台北市/信義")
-    with pytest.raises(ValueError, match="只能從島上出發"):
+    with pytest.raises(ValueError, match="^澎湖只能從島上出發"):
         services.plan_date(base, req)
 
 
@@ -213,3 +228,71 @@ def test_cross_county_rail_follows_the_real_lines(base, src, dst, line):
     """台南接左營（再續縱貫線到高雄）、新烏日直達員林、台北花蓮有直達車，不必繞路。"""
     links = base.scalars(select(TransitLink).where(TransitLink.from_station_id == src, TransitLink.to_station_id == dst))
     assert [link.line for link in links] == [line]
+
+
+def _plan_context(session, origin_id, area_id):
+    """只有交通的排程情境（沒有場次和餐廳），用來直接測找走法。"""
+    from app.planner import PlanContext, Place
+
+    def place(station):
+        return Place(station.id, station.name, station.lat, station.lng)
+
+    stations = session.scalars(select(Station).where(Station.area_id == area_id)).all()
+    return PlanContext(
+        origin=place(session.get(Station, origin_id)), area_stations=[place(s) for s in stations],
+        graph=services.load_graph(session), showtimes=[], restaurants=[], weekend=False, threshold=0.6, ask=None,
+    )
+
+
+def test_tainan_can_be_reached_without_high_speed_rail(base):
+    from app.planner import _out_options
+
+    ctx = _plan_context(base, "tpe-main", "台南市/中西區")
+    tainan = next(p for p in ctx.area_stations if p.id == "tnn-main")
+    early = PlanRequest(date="2026-10-13", depart_after="08:00")
+    options = _out_options(ctx, early, tainan, to_min("18:00"), every=True)
+    labels = [o.label for o in options]
+    assert any("高鐵" in label for label in labels) and any("高鐵" not in label for label in labels), labels
+    departs = [o.route.depart for o in options]
+    assert departs == sorted(departs, reverse=True)  # 由快到慢：越晚出門越前面
+    fares = [o.fare for o in options]
+    assert fares == sorted(fares, reverse=True)  # 慢的一定比較便宜，不然會被刪掉
+    # 下午兩點才能出門，只搭台鐵趕不上，剩下有搭高鐵的走法
+    late = PlanRequest(date="2026-10-13", depart_after="14:00")
+    assert all("高鐵" in o.label for o in _out_options(ctx, late, tainan, to_min("18:00"), every=True))
+
+
+def test_metro_trip_has_a_single_option(base):
+    from app.planner import _home_options, _out_options
+
+    ctx = _plan_context(base, "ntp-banqiao", "台北市/信義")
+    cityhall = next(p for p in ctx.area_stations if p.id == "tpe-cityhall")
+    req = PlanRequest(date="2026-10-13")
+    go = _out_options(ctx, req, cityhall, to_min("18:00"), every=True)
+    back = _home_options(ctx, req, cityhall, to_min("21:00"), every=True)
+    assert [(o.label, o.fare) for o in go] == [("捷運板南線", 45)]
+    assert [o.label for o in back] == ["捷運板南線"]
+
+
+# 範圍縮小到桃園時，出發站和商圈都在桃園市內
+TAOYUAN_ORIGINS = ["tyn-taoyuan", "tyn-zhongli", "tyn-hsr", "tyn-bade"]
+TAOYUAN_AREAS = ["桃園市/桃園區", "桃園市/青埔", "桃園市/中壢", "桃園市/八德"]
+
+
+def test_taoyuan_origins(base):
+    stations = base.scalars(select(Station).where(Station.city == "桃園市", Station.is_origin.is_(True))).all()
+    assert sorted(s.id for s in stations) == sorted(TAOYUAN_ORIGINS)
+
+
+@pytest.mark.parametrize("origin", TAOYUAN_ORIGINS)
+@pytest.mark.parametrize("area_id", TAOYUAN_AREAS)
+def test_taoyuan_origin_reaches_taoyuan_area(base, origin, area_id):
+    """下午兩點出門到得了，晚上十點前也有車回得去（考慮首末班車）。"""
+    graph = services.load_graph(base)
+    stations = _area_stations(base, area_id)
+    assert stations, area_id
+    assert all(
+        graph.earliest_arrival(origin, to_min("14:00"), s) is not None
+        and graph.latest_departure(s, origin, to_min("22:00")) is not None
+        for s in stations
+    ), (origin, area_id)

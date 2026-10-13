@@ -8,6 +8,7 @@
 兩種查詢：
 - earliest_arrival(A, t, B)：t 從 A 出發，最早幾點到 B（回程用）
 - latest_departure(A, B, t)：要在 t 以前到 B，最晚幾點要從 A 出發（去程用）
+- excluding(modes)：拿掉某些交通方式的路網，用來找替代走法（例如不搭高鐵）
 """
 from __future__ import annotations
 
@@ -69,6 +70,11 @@ class Route:
     arrive: int  # 抵達終點的時間
     legs: list[Leg] = field(default_factory=list)
 
+    @property
+    def label(self) -> str:
+        """走法名稱：各段路線依序串起來，例如「高鐵 → 捷運板南線」；名稱一樣就算同一種走法。"""
+        return " → ".join(leg.label for leg in self.legs) or "步行"
+
 
 class TransitGraph:
     def __init__(self, nodes: list[Node], edges: list[Edge]):
@@ -82,8 +88,19 @@ class TransitGraph:
         # 同一次排程會反覆問同樣的問題（同一個場次、同一家餐廳），先記起來
         self._forward: dict[tuple, Route | None] = {}
         self._backward: dict[tuple, Route | None] = {}
+        # 拿掉某些交通方式的路網（找替代走法用），同一次排程反覆用，建一次就記起來
+        self._variants: dict[frozenset[str], TransitGraph] = {}
 
     # ---------- 基本工具 ----------
+
+    def excluding(self, modes: frozenset[str]) -> TransitGraph:
+        """拿掉某些交通方式的路網；沒有要拿掉的就是自己。"""
+        if not modes:
+            return self
+        if modes not in self._variants:
+            edges = [e for out in self.out_edges.values() for e in out if e.mode not in modes]
+            self._variants[modes] = TransitGraph(list(self.nodes.values()), edges)
+        return self._variants[modes]
 
     def reachable(self, src: str, dst: str) -> bool:
         """不管時間，路網上有沒有路可以從 src 到 dst。"""

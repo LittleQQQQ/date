@@ -12,6 +12,7 @@ os.environ["JEV_MODE"] = "mock"
 os.environ["OLLAMA_URL"] = ""
 os.environ["MCP_CLIENT_URL"] = ""
 os.environ["AUTO_REFRESH"] = "false"
+os.environ["ACTIVE_CITIES"] = ""
 
 
 @pytest.fixture(scope="session")
@@ -55,7 +56,11 @@ def mem_session():
     from app import models  # noqa: F401  註冊資料表
     from app.db import Base
 
+    from sqlalchemy import event
+
     engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+    # 讓 SQLite 也檢查外鍵（和 PostgreSQL 一致），刪除順序錯了測試就會失敗
+    event.listen(engine, "connect", lambda conn, _: conn.execute("PRAGMA foreign_keys=ON"))
     Base.metadata.create_all(engine)
     with Session(engine, expire_on_commit=False) as s:
         yield s

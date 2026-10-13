@@ -43,6 +43,7 @@ _CONTEXT_LABELS = {
     "diet": "飲食限制",
     "user": "使用者條件",
     "movie": "要看的電影",
+    "plan": "這個方案",
     "options": "各選項說明",
 }
 

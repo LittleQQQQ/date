@@ -160,6 +160,8 @@ class Batch(BaseModel):
     restaurant_areas: list[str] | None = None
     # 額外的統計（例如失敗頁數），會寫進 scrape_runs.counts
     stats: dict[str, int] = Field(default_factory=dict)
+    # True：這批是完整的商圈與交通（base）。資料庫裡這批沒有的路段、車站、商圈（連同其中的影城、場次、餐廳）會被刪掉
+    replace_network: bool = False
 
 
 class ScrapeError(Exception):

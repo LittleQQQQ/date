@@ -174,6 +174,18 @@ def restaurant_choice(options: tuple[str, ...], context: dict) -> list[float]:
     return softmax(scores)
 
 
+def transit_choice(options: tuple[str, ...], context: dict) -> list[float]:
+    """選去程或回程的走法：省下的時間加分；轉乘、車資（佔剩下的預算越多扣越多）、回程太接近末班車扣分。"""
+    budget_left = context["_budget_left"]
+    scores = []
+    for label in options:
+        f = context["_features"][label]
+        fare = 6 * f["fare"] / budget_left if budget_left > 0 else 0.001 * f["fare"]
+        last_train = 1.0 if f["last_margin"] is not None and f["last_margin"] < 15 else 0.0
+        scores.append(0.015 * f["saved"] - 0.5 * f["transfers"] - fare - last_train)
+    return softmax(scores)
+
+
 class MockJev:
     name = "mock"
 
@@ -187,7 +199,12 @@ class MockJev:
         TITLE_MATCH.key: title_match,
         "diet_ok": diet_ok,
     }
-    _CHOICE_RULES = {"movie_choice": movie_choice, "restaurant_choice": restaurant_choice}
+    _CHOICE_RULES = {
+        "movie_choice": movie_choice,
+        "restaurant_choice": restaurant_choice,
+        "transit_go": transit_choice,
+        "transit_back": transit_choice,
+    }
 
     def predict(self, question: Question, context: dict, text: str) -> list[float]:
         if question.key in self._CHOICE_RULES:

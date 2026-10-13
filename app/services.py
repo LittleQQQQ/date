@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import datetime as dt
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, true
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -31,11 +31,15 @@ from .models import Area, Cinema, Movie, Restaurant, ScrapeRun, Showtime, Statio
 from .planner import Place, PlanContext, RestaurantInfo, ShowtimeInfo
 from .regions import TAIWAN_CITIES
 from .schemas import PlanRequest
+from .scope import active_cities, is_open, require_open, require_open_area
 from .timeutil import WEEKDAY_KEYS, fmt, to_min, today_tw, weekday_label
 from .transit import Edge, Node, TransitGraph
 
-STATION_ALIASES = {"北車": "台北車站", "台北101": "台北101/世貿", "101": "台北101/世貿"}
-ISLAND_CITIES = ("澎湖縣", "金門縣")
+STATION_ALIASES = {
+    "北車": "台北車站", "台北101": "台北101/世貿", "101": "台北101/世貿", "八德": "八德（介壽大智路口）",
+}
+# 和本島之間沒有當天往返的大眾運輸（金門暫時沒有商圈：OSM 在影城附近沒有餐廳資料）
+ISLAND_CITIES = ("澎湖縣",)
 
 
 def _place(row) -> Place:
@@ -91,9 +95,11 @@ def _area_and_origin(session: Session, area_id: str, origin: str) -> tuple[Area,
     area = session.get(Area, area_id)
     if area is None:
         raise ValueError(f"還沒有「{area_id}」這個商圈的資料")
+    require_open(area.city)
     station = resolve_station(session, origin)
     if station is None:
         raise ValueError(f"找不到出發站「{origin}」")
+    require_open(station.city)
     area_stations = list(session.scalars(select(Station).where(Station.area_id == area.id)))
     if not area_stations:
         raise ValueError(f"「{area.city}{area.name}」沒有可以抵達的車站資料")
@@ -109,7 +115,7 @@ def build_context(session: Session, req: PlanRequest, jev: JevService) -> tuple[
         graph.reachable(s.id, origin.id) for s in area_stations
     ):
         if origin.city != area.city and (origin.city in ISLAND_CITIES or area.city in ISLAND_CITIES):
-            raise ValueError("澎湖、金門只能從島上出發，請改選島上的出發站（例如馬公總站、金城車站）")
+            raise ValueError("澎湖只能從島上出發，請改選島上的出發站（例如馬公總站）")
         raise ValueError(f"目前沒有從{origin.city}{planner.station_name(origin.name)}到{area.city}{area.name}的交通資料")
 
     rows = session.execute(
@@ -207,6 +213,7 @@ def plan_date(session: Session, req: PlanRequest) -> dict:
 
 
 def search_showtimes(session: Session, date: dt.date, area: str = "台北市/信義", movie_query: str = "") -> list[dict]:
+    require_open_area(area)
     jev = JevService(session)
     rows = session.execute(
         select(Showtime, Cinema, Movie)
@@ -246,6 +253,7 @@ def find_restaurants(
     cinema = session.get(Cinema, cinema_id)
     if cinema is None:
         raise ValueError(f"找不到影城 {cinema_id}")
+    require_open_area(cinema.area_id)
     day = date or today_tw()
     jev = JevService(session)
     out = []
@@ -304,6 +312,12 @@ def check_route(session: Session, origin: str, area: str = "台北市/信義", d
 SOURCE_LABELS = {"atmovies": "開眼", "osm": "OSM", "base": "商圈與交通", "fixture": "示意資料"}
 
 
+def _in_open_area(area_id_column):
+    """資料列的商圈在開放範圍內（見 app/scope.py）；沒設範圍就不限。"""
+    cities = active_cities()
+    return area_id_column.in_(select(Area.id).where(Area.city.in_(cities))) if cities else true()
+
+
 def data_status(session: Session) -> dict:
     runs = session.scalars(select(ScrapeRun).where(ScrapeRun.status == "ok").order_by(ScrapeRun.finished_at.desc())).all()
     latest: dict[str, ScrapeRun] = {}
@@ -318,7 +332,12 @@ def data_status(session: Session) -> dict:
         for run in latest.values()
     ]
     has_showtimes = bool(
-        session.scalar(select(func.count()).select_from(Showtime).where(Showtime.date >= today_tw().isoformat()))
+        session.scalar(
+            select(func.count())
+            .select_from(Showtime)
+            .join(Cinema, Showtime.cinema_id == Cinema.id)
+            .where(Showtime.date >= today_tw().isoformat(), _in_open_area(Cinema.area_id))
+        )
     )
     return {"sources": sources, "is_demo": "fixture" in latest, "has_showtimes": has_showtimes}
 
@@ -345,7 +364,7 @@ def available_dates(session: Session) -> dict[str, list[dict]]:
 
 
 def list_cities(session: Session) -> list[dict]:
-    """全台 22 縣市，附上各縣市有資料的商圈（含可選日期）與出發站。"""
+    """開放範圍內的縣市（ACTIVE_CITIES，預設桃園市），附上各縣市有資料的商圈（含可選日期）與出發站。"""
     dates = available_dates(session)
     areas = session.scalars(select(Area).order_by(Area.id)).all()
     # 轉乘時間長的通常是大站（台北車站、左營），排前面當預設出發站
@@ -354,10 +373,24 @@ def list_cities(session: Session) -> list[dict]:
     ).all()
     cities = []
     for region, city in TAIWAN_CITIES:
+        if not is_open(city):
+            continue
         city_areas = [{"id": a.id, "name": a.name, "dates": dates[a.id]} for a in areas if a.city == city and a.id in dates]
         city_origins = [{"id": s.id, "name": s.name} for s in origins if s.city == city]
         cities.append({"name": city, "region": region, "areas": city_areas, "origins": city_origins})
     return cities
+
+
+def _open_movie_titles(session: Session) -> list[str]:
+    """片名清單（給網頁與聊天比對）；有設開放範圍時，只列開放縣市的影城有場次的片。"""
+    query = select(Movie.title)
+    if active_cities():
+        query = (
+            query.join(Showtime, Showtime.movie_id == Movie.id)
+            .join(Cinema, Showtime.cinema_id == Cinema.id)
+            .where(_in_open_area(Cinema.area_id))
+        )
+    return sorted(set(session.scalars(query)))
 
 
 def meta(session: Session) -> dict:
@@ -367,7 +400,7 @@ def meta(session: Session) -> dict:
         "cities": cities,
         "areas": [{"id": a["id"], "name": a["name"], "city": c["name"]} for c in cities for a in c["areas"]],
         "origins": [{"id": o["id"], "name": o["name"], "city": c["name"]} for c in cities for o in c["origins"]],
-        "movies": sorted(set(session.scalars(select(Movie.title)))),
+        "movies": _open_movie_titles(session),
         "options": {
             "screen_types": list(SCREEN.options),
             "audio": list(AUDIO.options),
@@ -377,8 +410,10 @@ def meta(session: Session) -> dict:
             "meal_minutes": MEAL_MINUTES,
         },
         "counts": {
-            "cinemas": session.scalar(select(func.count()).select_from(Cinema)),
-            "restaurants": session.scalar(select(func.count()).select_from(Restaurant)),
+            "cinemas": session.scalar(select(func.count()).select_from(Cinema).where(_in_open_area(Cinema.area_id))),
+            "restaurants": session.scalar(
+                select(func.count()).select_from(Restaurant).where(_in_open_area(Restaurant.area_id))
+            ),
         },
         "jev": {"mode": settings.jev_mode, "threshold": settings.jev_confidence_threshold},
         "llm": {"model": settings.ollama_model},
