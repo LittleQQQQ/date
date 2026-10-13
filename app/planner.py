@@ -281,6 +281,8 @@ def _pick_trips(
     req: PlanRequest, base_cost: int, go: TripSearch, back: TripSearch, choice: RouteChoice
 ) -> tuple[TripOption, TripOption]:
     """挑去程、回程：指定的走法（付得起的話），不然是預算內最快的；怎麼搭都超出預算就排除這個組合。"""
+    if req.budget_per_person and base_cost > req.budget_per_person:
+        raise Reject("超過每人預算")  # 電影加餐費就超出預算，不必再找走法
     if not _affordable_go(req, base_cost, go.options[:1], back.options[:1]):
         go.expand()  # 最快的走法超出預算，才找便宜的走法
         back.expand()
@@ -739,9 +741,13 @@ def _trip_user_text(req: PlanRequest, ctx: PlanContext) -> str:
 
 def _ask_trip(
     req: PlanRequest, ctx: PlanContext, movie: str, restaurant: str, base_cost: int,
-    direction: str, options: list[TripOption], budget_left: int,
+    direction: str, options: list[TripOption], budget_left: int, plan_note: str = "",
 ) -> JevAnswer:
-    """問 Jev 這個方案的去程或回程搭哪一種；options 由快到慢。只有一種走法時不問。"""
+    """問 Jev 這個方案的去程或回程搭哪一種；options 由快到慢。只有一種走法時不問。
+
+    Jev 只看得到文字，所以去程搭了什麼、剩下的車資預算要由 plan_note 寫進方案說明
+    （快取的雜湊也是從文字算的，去程改選後回程才會重問）；_budget_left 只給模擬版用。
+    """
     labels = [o.label for o in options]
     question = transit_choice_question(direction, labels)
     subject = _subject(req, movie, restaurant)
@@ -763,7 +769,7 @@ def _ask_trip(
     }
     context = {
         "user": _trip_user_text(req, ctx),
-        "plan": f"看《{movie}》、在{restaurant}吃飯，電影加餐費每人 {base_cost} 元",
+        "plan": f"看《{movie}》、在{restaurant}吃飯，電影加餐費每人 {base_cost} 元{plan_note}",
         "options": [_trip_text(o, going) for o in options],
         "_features": features,
         "_budget_left": budget_left,
@@ -784,14 +790,17 @@ def _choose_trips(req: PlanRequest, ctx: PlanContext, picked: list[dict], asks: 
         base = c.showtime.price + c.restaurant.price
         movie, restaurant = c.showtime.movie_title, c.restaurant.place.name
 
+        # 一定有付得起的去程：這個組合已通過 _pick_trips（最快的去程一定留著，每種走法都算時最便宜的回程不會比最快的貴）
         gos = _affordable_go(req, base, full.go_options, full.back_options)
         left = budget - base - min(o.fare for o in full.back_options) if budget else 0
-        go_ans = _ask_trip(req, ctx, movie, restaurant, base, "去程", gos, left)
+        note = f"；去程車資每人最多 {left} 元（已預留最便宜回程的車資）" if budget else ""
+        go_ans = _ask_trip(req, ctx, movie, restaurant, base, "去程", gos, left, note)
         go = next(o for o in gos if o.label == go_ans.top)
 
         backs = _affordable_back(req, base, go, full.back_options)
         left = budget - base - go.fare if budget else 0
-        back_ans = _ask_trip(req, ctx, movie, restaurant, base, "回程", backs, left)
+        note = f"；去程搭「{go.label}」，每人約 {go.fare} 元" + (f"；回程車資每人最多 {left} 元" if budget else "")
+        back_ans = _ask_trip(req, ctx, movie, restaurant, base, "回程", backs, left, note)
 
         pick["candidate"] = build(ctx, req, c.showtime, c.restaurant, RouteChoice(True, go.label, back_ans.top))
         pick["go"] = _choice_info(go_ans, go_ans.top, 1)

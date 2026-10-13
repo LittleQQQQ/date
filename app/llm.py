@@ -305,13 +305,15 @@ def template_summary(result: dict) -> str:
     m, r = best["movie"], best["restaurant"]
     feasible = result.get("stats", {}).get("feasible", len(plans))
     go, back = best["transit"]["go"], best["transit"]["back"]
+    fares = go["fare"] + back["fare"]
+    cost = f"每人約 {best['cost_per_person']} 元" + (f"（含來回車資約 {fares} 元）" if fares else "")
     return (
         f"從 {feasible} 個接得起來的組合裡，Jev 選出 {len(plans)} 個方案。"
         + "".join(result.get("notes") or [])
         + f"Jev 首選：{m['start']} 在{m['cinema']}看《{m['title']}》（{m['label']}），{best['order_text']}，"
         f"到{r['name']}用餐；{_trip_phrase('去程', go)}、{_trip_phrase('回程', back)}，"
         f"{best['leave_home']} 出門、{best['arrive_home']} 到家，"
-        f"每人約 {best['cost_per_person']} 元（含來回車資約 {go['fare'] + back['fare']} 元）。"
+        f"{cost}。"
     )
 
 

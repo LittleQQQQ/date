@@ -403,6 +403,19 @@ def test_trip_over_budget_is_rejected():
         _pick_trips(req, 800, go, back, RouteChoice())
 
 
+def test_pick_trips_rejects_before_expanding_when_the_base_cost_alone_is_over_budget():
+    import pytest
+
+    from app.planner import Reject, RouteChoice, _pick_trips
+
+    go = _search(_trip("高鐵", 700), _trip("台鐵", 375))
+    back = _search(_trip("高鐵", 700), _trip("台鐵", 375))
+    req = PlanRequest(date="2026-10-17", budget_per_person=1500)
+    with pytest.raises(Reject, match="^超過每人預算$"):
+        _pick_trips(req, 1600, go, back, RouteChoice())  # 電影加餐費 1600 已經超出 1500，不必再找走法
+    assert not go.every and not back.every
+
+
 def test_pick_trips_follows_the_chosen_labels():
     from app.planner import RouteChoice, _pick_trips
 
@@ -507,3 +520,71 @@ def test_unsure_trip_choice_is_offered(session, saturday):
     item = next(c for c in res["confirmations"] if c["key"].startswith("transit_go:"))
     assert item["kind"] == "choice" and len(item["options"]) >= 2
     assert item["question"] == "Jev 不太確定去程要搭哪一種，你比較想怎麼去？"
+
+
+def _asked_trips(ctx):
+    """包住 ctx.ask，記下每一次選車的（問題, 對象, context）。"""
+    asked = []
+    original = ctx.ask
+
+    def ask(question, subject, context):
+        if question.key.startswith("transit_"):
+            asked.append((question, subject, context))
+        return original(question, subject, context)
+
+    ctx.ask = ask
+    return asked
+
+
+def _plan_with_trip_texts(session, saturday, **kwargs):
+    """排一次台中到信義，回傳（結果, 第一名方案問 Jev 的去程／回程文字）。"""
+    from app import planner
+    from app.jev import JevService
+    from app.jev.service import context_text
+
+    req = PlanRequest(**_params(saturday, **TAICHUNG, **kwargs))
+    ctx, _ = services.build_context(session, req, JevService(session))
+    asked = _asked_trips(ctx)
+    res = planner.plan(req, ctx)
+    best = res["plans"][0]
+    subject = planner._subject(req, best["movie"]["title"], best["restaurant"]["name"])
+    texts = {q.key: context_text(c) for q, s, c in asked if s == subject}
+    return res, texts
+
+
+def test_jev_trip_text_states_outbound_and_budget_left(session, saturday):
+    """Jev 只看得到文字：選回程時要說去程搭了什麼、花了多少；有預算時兩個問題都要說剩下多少。"""
+    res, texts = _plan_with_trip_texts(session, saturday, budget_per_person=5000)
+    best = res["plans"][0]
+    assert len(best["transit"]["go"]["options"]) >= 2  # 預算 5000 付得起的去程至少兩種，才會問 Jev
+    assert "去程車資每人最多" in texts["transit_go"]
+    assert f"去程搭「{best['transit']['go']['choice']}」" in texts["transit_back"]
+    assert "回程車資每人最多" in texts["transit_back"]
+
+
+def test_jev_trip_text_without_budget_still_names_the_outbound(session, saturday):
+    res, texts = _plan_with_trip_texts(session, saturday)
+    go = res["plans"][0]["transit"]["go"]
+    assert "車資每人最多" not in texts["transit_go"]  # 沒設預算就沒有剩下多少的說法
+    assert f"去程搭「{go['choice']}」，每人約 {go['fare']} 元" in texts["transit_back"]
+    assert "回程車資每人最多" not in texts["transit_back"]
+
+
+def test_switching_the_outbound_asks_jev_about_the_return_again(session, saturday):
+    """改選去程後，回程的文字（連同快取的雜湊）要跟著變，Jev 才會重新回答。"""
+    from app import planner
+
+    kwargs = {**TAICHUNG, "budget_per_person": 5000}
+    before = _plan(session, saturday, **kwargs)
+    best = before["plans"][0]
+    other = next(o for o in best["transit"]["go"]["options"] if o["label"] != best["transit"]["go"]["choice"])
+    req = PlanRequest(**_params(saturday, **kwargs))
+    key = f"transit_go:{planner._subject(req, best['movie']['title'], best['restaurant']['name'])}"
+
+    after = _plan(session, saturday, **kwargs, overrides={key: other["label"]})
+    assert after["jev"]["new_calls"] >= 1  # 回程被重新問過，不是沿用去程改選前的快取
+
+    _, texts_before = _plan_with_trip_texts(session, saturday, budget_per_person=5000)
+    _, texts_after = _plan_with_trip_texts(session, saturday, budget_per_person=5000, overrides={key: other["label"]})
+    assert texts_after["transit_back"] != texts_before["transit_back"]
+    assert f"去程搭「{other['label']}」" in texts_after["transit_back"]

@@ -6,7 +6,7 @@ const state = { meta: null, overrides: {}, busy: false };
 // 下拉選單的選項
 const DEPART_TIMES = range(10 * 60, 21 * 60, 30); // 10:00–21:00
 const HOME_TIMES = range(18 * 60, 25 * 60, 30); // 18:00–次日 01:00
-const BUDGETS = [0, 800, 1000, 1500, 2000, 3000];
+const BUDGETS = [0, 800, 1000, 1500, 2000, 3000, 5000];
 const WALK_LIMITS = [5, 8, 10, 12, 15, 20];
 const DEFAULTS = { depart_after: "16:00", home_by: "23:00", budget_per_person: "0", max_walk_min: "12" };
 
@@ -315,7 +315,7 @@ function renderJev(p) {
   return `
     <details class="jev"><summary>Jev 怎麼選、怎麼判斷的</summary>
       <h4>Jev 的選擇</h4>
-      <ul>${choiceRow("看哪部片", p.jev_choice.movie)}${choiceRow("吃哪一家", p.jev_choice.restaurant)}${choiceRow("去程搭什麼", p.jev_choice.go, "只有這種走法接得上")}${choiceRow("回程搭什麼", p.jev_choice.back, "只有這種走法接得上")}</ul>
+      <ul>${choiceRow("看哪部片", p.jev_choice.movie)}${choiceRow("吃哪一家", p.jev_choice.restaurant)}${choiceRow("去程搭什麼", p.jev_choice.go, "只有這種走法接得上、付得起")}${choiceRow("回程搭什麼", p.jev_choice.back, "只有這種走法接得上、付得起")}</ul>
       <h4>屬性判斷（用來篩選與估算時間）</h4>
       <ul>${attributes.join("")}</ul>
     </details>`;
