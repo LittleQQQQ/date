@@ -20,6 +20,7 @@ from .jev.questions import (
     Question,
     movie_choice_question,
     restaurant_choice_question,
+    transit_choice_question,
 )
 from .schemas import PlanRequest
 from .timeutil import fmt, to_min
@@ -42,7 +43,7 @@ ASSUMPTIONS = {
     "候位時間": "尖峰（17:30–20:30）週五到週日 ×1.5、離峰 ×0.5；可訂位的餐廳假設已訂位",
     "車資": "依交通方式和車程估計：捷運 20～65 元、市區公車 15 元、國道客運每分鐘約 2.3 元、台鐵每分鐘約 2.5 元、高鐵每分鐘約 13 元；不是實際票價",
     "預算": "每人預算包含電影票、餐費與來回車資",
-    "怎麼選": "程式先篩出時間、交通、預算都接得起來的組合；看哪部片、吃哪一家由 Jev 選；同一組片和餐廳有好幾個場次時，程式挑緩衝最充裕的",
+    "怎麼選": "程式先篩出時間、交通、預算都接得起來的組合；看哪部片、吃哪一家由 Jev 選，前三名方案的去程、回程搭什麼也由 Jev 從接得上、付得起的走法裡選；同一組片和餐廳有好幾個場次時，程式挑緩衝最充裕的",
 }
 
 
@@ -705,6 +706,106 @@ def _jev_pick(
     return combos[:PLAN_COUNT]
 
 
+def _transfers(route: Route) -> int:
+    return max(len(route.legs) - 1, 0)
+
+
+def _last_margin(route: Route) -> int | None:
+    """這趟車離末班車最近的一段還有幾分鐘；走路就到的沒有末班車。"""
+    return min((leg.last - leg.ready for leg in route.legs), default=None)
+
+
+def _trip_text(o: TripOption, going: bool) -> str:
+    r = o.route
+    ride = sum(leg.ride_min for leg in r.legs)
+    longest_wait = max((leg.wait for leg in r.legs), default=0)
+    when = f"{fmt(r.depart)} 出門、{fmt(r.arrive)} 到站" if going else f"{fmt(r.depart)} 開始等車、{fmt(r.arrive)} 到家"
+    text = (
+        f"「{o.label}」：{when}，車程 {ride} 分鐘（不含等車），轉乘 {_transfers(r)} 次，"
+        f"最久等車 {longest_wait} 分鐘，每人車資約 {o.fare} 元（估計）"
+    )
+    margin = None if going else _last_margin(r)
+    if margin is not None:
+        text += f"，離末班車還有 {margin} 分鐘"
+    return text + "。"
+
+
+def _trip_user_text(req: PlanRequest, ctx: PlanContext) -> str:
+    return (
+        f"{_user_text(req)}；從{station_name(ctx.origin.name)}出發，到{req.area}；"
+        f"最早 {req.depart_after} 出門，最晚 {req.home_by} 回到出發站"
+    )
+
+
+def _ask_trip(
+    req: PlanRequest, ctx: PlanContext, movie: str, restaurant: str, base_cost: int,
+    direction: str, options: list[TripOption], budget_left: int,
+) -> JevAnswer:
+    """問 Jev 這個方案的去程或回程搭哪一種；options 由快到慢。只有一種走法時不問。"""
+    labels = [o.label for o in options]
+    question = transit_choice_question(direction, labels)
+    subject = _subject(req, movie, restaurant)
+    if len(options) == 1:
+        return JevAnswer(f"{question.key}:{subject}", question.text, labels, [1.0], source="program")
+    going = direction == "去程"
+    if going:  # 去程比出門時間：可以晚出門幾分鐘
+        saved = {o.label: o.route.depart - min(x.route.depart for x in options) for o in options}
+    else:  # 回程比到家時間：可以早到家幾分鐘
+        saved = {o.label: max(x.route.arrive for x in options) - o.route.arrive for o in options}
+    features = {
+        o.label: {
+            "saved": saved[o.label],
+            "transfers": _transfers(o.route),
+            "fare": o.fare,
+            "last_margin": None if going else _last_margin(o.route),
+        }
+        for o in options
+    }
+    context = {
+        "user": _trip_user_text(req, ctx),
+        "plan": f"看《{movie}》、在{restaurant}吃飯，電影加餐費每人 {base_cost} 元",
+        "options": [_trip_text(o, going) for o in options],
+        "_features": features,
+        "_budget_left": budget_left,
+    }
+    return ctx.ask(question, subject, context)
+
+
+def _choose_trips(req: PlanRequest, ctx: PlanContext, picked: list[dict], asks: dict) -> None:
+    """前三名決定後，請 Jev 選每個方案的去程、回程走法，再用選定的走法重排該方案（電影、用餐時間不變）。
+
+    去程只列付得起的（加上最便宜的回程不超出預算）；回程只列選好去程之後、剩下的預算付得起的。
+    """
+    budget = req.budget_per_person
+    for rank, pick in enumerate(picked, start=1):
+        c = pick["candidate"]
+        build = BUILDERS[c.order]
+        full = build(ctx, req, c.showtime, c.restaurant, RouteChoice(every=True))
+        base = c.showtime.price + c.restaurant.price
+        movie, restaurant = c.showtime.movie_title, c.restaurant.place.name
+
+        gos = _affordable_go(req, base, full.go_options, full.back_options)
+        left = budget - base - min(o.fare for o in full.back_options) if budget else 0
+        go_ans = _ask_trip(req, ctx, movie, restaurant, base, "去程", gos, left)
+        go = next(o for o in gos if o.label == go_ans.top)
+
+        backs = _affordable_back(req, base, go, full.back_options)
+        left = budget - base - go.fare if budget else 0
+        back_ans = _ask_trip(req, ctx, movie, restaurant, base, "回程", backs, left)
+
+        pick["candidate"] = build(ctx, req, c.showtime, c.restaurant, RouteChoice(True, go.label, back_ans.top))
+        pick["go"] = _choice_info(go_ans, go_ans.top, 1)
+        pick["back"] = _choice_info(back_ans, back_ans.top, 1)
+        pick["trip_options"] = (gos, backs)
+        if rank == 1:
+            for ans, question, priority in (
+                (go_ans, "Jev 不太確定去程要搭哪一種，你比較想怎麼去？", 6),
+                (back_ans, "Jev 不太確定回程要搭哪一種，你比較想怎麼回？", 7),
+            ):
+                if len(ans.options) > 1 and not ans.confident(ctx.threshold):
+                    _ask(asks, ans, question, priority, kind="choice")
+
+
 def _labels(picked: list[dict]) -> list[list[str]]:
     """Jev 的名次，加上程式算出來的客觀標籤（三個方案裡最省、最穩的）。"""
     names = ["Jev 首選", "Jev 第二選擇", "Jev 第三選擇"]
@@ -731,6 +832,21 @@ def _estimate_notes(showtime, restaurant) -> list[str]:
     return [note for kind, name, note in ESTIMATE_NOTES if name in sources[kind]]
 
 
+def _option_dict(o: TripOption) -> dict:
+    return {
+        "label": o.label,
+        "depart": fmt(o.route.depart),
+        "arrive": fmt(o.route.arrive),
+        "ride_min": sum(leg.ride_min for leg in o.route.legs),
+        "transfers": _transfers(o.route),
+        "fare": o.fare,
+    }
+
+
+def _trip_dict(chosen: TripOption, options: list[TripOption]) -> dict:
+    return {"choice": chosen.label, "fare": chosen.fare, "options": [_option_dict(o) for o in options]}
+
+
 def _plan_dict(labels: list[str], pick: dict) -> dict:
     c = pick["candidate"]
     s, r = c.showtime, c.restaurant
@@ -741,11 +857,17 @@ def _plan_dict(labels: list[str], pick: dict) -> dict:
         "order": c.order,
         "order_text": "先看電影再吃飯" if c.order == "movie_first" else "先吃飯再看電影",
         "jev_confidence": round(pick["joint"], 3),
-        "jev_choice": {"movie": pick["movie"], "restaurant": pick["restaurant"]},
+        "jev_choice": {
+            "movie": pick["movie"], "restaurant": pick["restaurant"], "go": pick["go"], "back": pick["back"],
+        },
         "leave_home": fmt(c.leave_home),
         "arrive_home": fmt(c.arrive_home),
         "cost_per_person": c.cost,
         "cost_breakdown": {"movie": s.price, "meal": r.price, "go": c.go.fare, "back": c.back.fare},
+        "transit": {
+            "go": _trip_dict(c.go, pick["trip_options"][0]),
+            "back": _trip_dict(c.back, pick["trip_options"][1]),
+        },
         "tightest_buffer_min": c.tightest,
         "movie": {
             "title": s.movie_title,
@@ -826,6 +948,7 @@ def plan(req: PlanRequest, ctx: PlanContext) -> dict:
     # 2. Jev 從接得起來的組合裡選片、選餐廳
     notes: list[str] = []
     picked = _jev_pick(req, ctx, candidates, asks, notes)
+    _choose_trips(req, ctx, picked, asks)  # 選車在選片、選餐廳之後，不影響前三名
 
     if req.genre and candidates and not any(c.showtime.genre == req.genre for c in candidates):
         notes.append(f"你想看的{req.genre}片在這段時間內排不進去，Jev 改從其他片裡選。")

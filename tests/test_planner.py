@@ -4,9 +4,12 @@ from app.schemas import PlanRequest
 from app.timeutil import to_min
 
 
+def _params(saturday, **kwargs):
+    return {"date": saturday, "origin": "板橋", "depart_after": "16:00", "home_by": "22:30"} | kwargs
+
+
 def _plan(session, saturday, **kwargs):
-    params = {"date": saturday, "origin": "板橋", "depart_after": "16:00", "home_by": "22:30"} | kwargs
-    return services.plan_date(session, PlanRequest(**params))
+    return services.plan_date(session, PlanRequest(**_params(saturday, **kwargs)))
 
 
 def _clock(text: str) -> int:
@@ -428,3 +431,79 @@ def test_transit_steps_show_fares(session, saturday):
     plan = _plan(session, saturday)["plans"][0]
     rides = [s for s in plan["steps"] if s["kind"] == "transit"]
     assert rides and all("車資約" in s["detail"] for s in rides)
+
+
+# ---------- Jev 選車 ----------
+
+# 台中到信義：去程有高鐵、台鐵兩種走法
+TAICHUNG = {"origin": "台中車站", "area": "台北市/信義", "depart_after": "10:00", "home_by": "24:30"}
+
+
+def test_single_way_to_travel_skips_jev(session, saturday):
+    res = _plan(session, saturday)  # 板橋到信義只有捷運板南線
+    assert res["plans"]
+    for p in res["plans"]:
+        for direction in ("go", "back"):
+            assert p["jev_choice"][direction]["source"] == "program"
+            trip = p["transit"][direction]
+            assert [o["label"] for o in trip["options"]] == [trip["choice"]]
+    assert not any(c["key"].startswith("transit_") for c in res["confirmations"])
+
+
+def test_jev_chooses_how_to_travel_when_there_is_a_choice(session, saturday):
+    best = _plan(session, saturday, **TAICHUNG)["plans"][0]
+    go = best["transit"]["go"]
+    assert len(go["options"]) >= 2, go["options"]
+    assert go["choice"] in [o["label"] for o in go["options"]]
+    assert best["jev_choice"]["go"]["source"] == "mock"
+    assert best["jev_choice"]["go"]["choice"] == go["choice"]
+    assert best["cost_breakdown"]["go"] == go["fare"]
+    assert sum(best["cost_breakdown"].values()) == best["cost_per_person"]
+
+
+def _fixed_parts(plan):
+    return [(s["time"], s["title"]) for s in plan["steps"] if s["kind"] in ("movie", "meal")]
+
+
+def _picks(res):
+    return [(p["movie"]["title"], p["restaurant"]["name"], p["jev_confidence"]) for p in res["plans"]]
+
+
+def test_switching_trip_keeps_movie_and_meal(session, saturday):
+    from app import planner
+
+    before = _plan(session, saturday, **TAICHUNG)
+    best = before["plans"][0]
+    other = next(o for o in best["transit"]["go"]["options"] if o["label"] != best["transit"]["go"]["choice"])
+    req = PlanRequest(**_params(saturday, **TAICHUNG))
+    key = f"transit_go:{planner._subject(req, best['movie']['title'], best['restaurant']['name'])}"
+    after = _plan(session, saturday, **TAICHUNG, overrides={key: other["label"]})
+    switched = after["plans"][0]
+    assert switched["transit"]["go"]["choice"] == other["label"]
+    assert switched["jev_choice"]["go"]["source"] == "user"
+    assert switched["leave_home"] == other["depart"]
+    assert switched["cost_breakdown"]["go"] == other["fare"]
+    assert _fixed_parts(switched) == _fixed_parts(best)  # 電影、用餐時間不變
+    assert _picks(after) == _picks(before)  # 前三名的片、餐廳、組合信心都不變
+
+
+def test_unsure_trip_choice_is_offered(session, saturday):
+    """Jev 選車沒把握時（這裡讓每種走法機率一樣），第一名方案的去程放進「想換換看嗎」。"""
+    from app import planner
+    from app.jev import JevAnswer, JevService
+
+    req = PlanRequest(**_params(saturday, **TAICHUNG))
+    ctx, _ = services.build_context(session, req, JevService(session))
+    original = ctx.ask
+
+    def ask(question, subject, context):
+        if question.key.startswith("transit_"):
+            n = len(question.options)
+            return JevAnswer(f"{question.key}:{subject}", question.text, list(question.options), [1 / n] * n)
+        return original(question, subject, context)
+
+    ctx.ask = ask
+    res = planner.plan(req, ctx)
+    item = next(c for c in res["confirmations"] if c["key"].startswith("transit_go:"))
+    assert item["kind"] == "choice" and len(item["options"]) >= 2
+    assert item["question"] == "Jev 不太確定去程要搭哪一種，你比較想怎麼去？"
