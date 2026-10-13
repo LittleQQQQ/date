@@ -80,17 +80,32 @@ DIET_HINTS = {"不吃辣": ("不吃辣", "不能吃辣", "怕辣"), "素食": ("
 _BUDGET = re.compile(r"(?:預算|每人|一人|一個人)[^0-9]{0,4}(\d{3,5})")
 _QUOTED_TITLE = re.compile(r"《(.+?)》|「(.+?)」")
 _ORIGIN_ALIASES = {"北車": "台北車站"}
+# 句子裡交代出發站的地方：「從○○出發／去／到」，或沒有「從」的「○○出發」
+_ORIGIN_PHRASES = (
+    re.compile(r"從([^，。,；;]+?)(?:出發|去|到)"),
+    re.compile(r"([^，。,；;]+?)出發"),
+)
 
 
-def _match_origin(text: str, meta: dict) -> str | None:
-    """回傳出發站代碼。站名重複（例如台北、台中都有市政府）時，看句子裡有沒有提到縣市。"""
-    text = text.replace("臺", "台")
-    for alias, name in _ORIGIN_ALIASES.items():
-        text = text.replace(alias, name)
-    for origin in sorted(meta["origins"], key=lambda o: len(o["name"]), reverse=True):
-        if origin["name"] not in text:
+def _short_name(name: str) -> str:
+    """站名「（」前面的部分：八德（介壽大智路口）→ 八德。"""
+    return name.split("（")[0]
+
+
+def _origin_in(segment: str, text: str, meta: dict, skip_areas: bool = False) -> str | None:
+    """在 segment 裡找出發站（全名或簡稱，名字長的先比）。站名重複（例如台北、台中都有市政府）時，看 text 有沒有提到縣市。
+    skip_areas：站名只出現在更長的商圈名裡（「桃園區」裡的「桃園」）不算。"""
+    names = [(o["name"], o) for o in meta["origins"]]
+    names += [(short, o) for o in meta["origins"] if (short := _short_name(o["name"])) not in ("", o["name"])]
+    for name, origin in sorted(names, key=lambda n: len(n[0]), reverse=True):
+        haystack = segment
+        if skip_areas:
+            for area in meta["areas"]:
+                if name in area["name"] and name != area["name"]:
+                    haystack = haystack.replace(area["name"], "\0" * len(area["name"]))
+        if name not in haystack:
             continue
-        same_name = [o for o in meta["origins"] if o["name"] == origin["name"]]
+        same_name = [o for n, o in names if n == name]
         if len(same_name) == 1:
             return origin["id"]
         for o in same_name:
@@ -99,13 +114,25 @@ def _match_origin(text: str, meta: dict) -> str | None:
     return None
 
 
+def _match_origin(text: str, meta: dict) -> str | None:
+    """回傳出發站代碼。先看「從○○出發」這類說法裡的站（「從八德出發去中壢」的出發站是八德），沒有再比對整句。"""
+    text = text.replace("臺", "台")
+    for alias, name in _ORIGIN_ALIASES.items():
+        text = text.replace(alias, name)
+    for phrase in _ORIGIN_PHRASES:
+        for m in phrase.finditer(text):
+            if origin := _origin_in(m.group(1), text, meta):
+                return origin
+    return _origin_in(text, text, meta, skip_areas=True)
+
+
 def _match_area(text: str, meta: dict, origin_id: str | None) -> str | None:
-    """回傳商圈代碼。「從板橋出發去信義」同時提到兩個商圈時，排除出發站所在的那個。"""
+    """回傳商圈代碼。「從板橋出發去信義」同時提到兩個商圈時，排除出發站所在的那個（站名或簡稱同名的商圈）。"""
     text = text.replace("臺", "台")
     hits = [a for a in meta["areas"] if a["name"] in text]
     if len(hits) > 1 and origin_id:
         origin_name = next((o["name"] for o in meta["origins"] if o["id"] == origin_id), "")
-        hits = [a for a in hits if a["name"] != origin_name] or hits
+        hits = [a for a in hits if a["name"] not in (origin_name, _short_name(origin_name))] or hits
     return max(hits, key=lambda a: len(a["name"]))["id"] if hits else None
 
 

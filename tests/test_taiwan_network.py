@@ -291,7 +291,7 @@ def test_taoyuan_origin_reaches_taoyuan_area(base, origin, area_id):
     graph = services.load_graph(base)
     stations = _area_stations(base, area_id)
     assert stations, area_id
-    assert any(
+    assert all(
         graph.earliest_arrival(origin, to_min("14:00"), s) is not None
         and graph.latest_departure(s, origin, to_min("22:00")) is not None
         for s in stations

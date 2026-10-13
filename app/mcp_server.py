@@ -58,9 +58,9 @@ def plan_date(
     max_walk_min: int = 12,
     overrides: dict[str, str] | None = None,
 ) -> dict[str, Any]:
-    """排出約會行程：電影＋餐廳＋大眾運輸（可跨縣市）。看哪部片、吃哪一家由 Jev 選，回傳 Jev 的前三名組合；每個方案的去程、回程搭什麼也由 Jev 從接得上、付得起的走法裡選（transit 列出各種走法與估計車資）。
+    """排出約會行程：電影＋餐廳＋大眾運輸（出發站和商圈都要在開放範圍內）。看哪部片、吃哪一家由 Jev 選，回傳 Jev 的前三名組合；每個方案的去程、回程搭什麼也由 Jev 從接得上、付得起的走法裡選（transit 列出各種走法與估計車資）。
 
-    area 為商圈代碼（縣市/商圈，例如 台中市/七期）；origin 為出發站代碼或站名，可以和商圈在不同縣市。
+    area 為商圈代碼（縣市/商圈，例如 桃園市/中壢）；origin 為出發站代碼或站名；兩者都要在開放範圍內（先呼叫 list_areas 看有哪些）。
     movie_query 留空＝交給 Jev 選片；genre 是想看的片型、diet 是飲食限制，Jev 選擇時會參考。
     date 為 YYYY-MM-DD；時間為 24 小時制 HH:MM；字串留空、數字填 0 代表不限。
     meal_order：after＝看完電影再吃，before＝先吃再看，any＝都可以。

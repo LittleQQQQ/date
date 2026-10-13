@@ -35,7 +35,9 @@ from .scope import active_cities, is_open, require_open, require_open_area
 from .timeutil import WEEKDAY_KEYS, fmt, to_min, today_tw, weekday_label
 from .transit import Edge, Node, TransitGraph
 
-STATION_ALIASES = {"北車": "台北車站", "台北101": "台北101/世貿", "101": "台北101/世貿"}
+STATION_ALIASES = {
+    "北車": "台北車站", "台北101": "台北101/世貿", "101": "台北101/世貿", "八德": "八德（介壽大智路口）",
+}
 # 和本島之間沒有當天往返的大眾運輸（金門暫時沒有商圈：OSM 在影城附近沒有餐廳資料）
 ISLAND_CITIES = ("澎湖縣",)
 
