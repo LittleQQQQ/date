@@ -50,3 +50,35 @@ def test_same_station_needs_no_ride():
     route = _graph().latest_departure("C", "C", to_min("20:00"))
     assert route.legs == [] and route.depart == to_min("20:00")
     assert not _graph().reachable("D", "A")
+
+
+def test_route_label_names_each_line():
+    route = _graph().earliest_arrival("A", to_min("18:00"), "D")
+    assert route.label == "捷運L1 → 公車L2"
+    assert _graph().earliest_arrival("C", to_min("18:00"), "C").label == "步行"
+
+
+def _two_ways():
+    # A→D：公車 L9 直達 10 分鐘；或搭捷運 L1 到 B，再轉捷運 L3 到 D
+    first, last = to_min("06:00"), to_min("23:00")
+    nodes = [Node("A", "甲"), Node("B", "乙"), Node("D", "丁")]
+    edges = [
+        Edge("A", "D", "公車", "L9", 10, 5, first, last),
+        Edge("A", "B", "捷運", "L1", 10, 5, first, last),
+        Edge("B", "D", "捷運", "L3", 15, 5, first, last),
+    ]
+    return TransitGraph(nodes, edges)
+
+
+def test_excluding_a_mode_finds_another_way():
+    graph = _two_ways()
+    assert graph.earliest_arrival("A", to_min("18:00"), "D").label == "公車L9"
+    no_bus = graph.excluding(frozenset({"公車"}))
+    assert no_bus.earliest_arrival("A", to_min("18:00"), "D").label == "捷運L1 → 捷運L3"
+    assert graph.earliest_arrival("A", to_min("18:00"), "D").label == "公車L9"  # 原本的路網不受影響
+
+
+def test_excluding_is_cached():
+    graph = _two_ways()
+    assert graph.excluding(frozenset()) is graph
+    assert graph.excluding(frozenset({"公車"})) is graph.excluding(frozenset({"公車"}))
