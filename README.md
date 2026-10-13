@@ -70,6 +70,8 @@ py -3 -m venv .venv
 4. 補抓餐廳：`python -m app.ingest --source osm`
 5. 重新啟動伺服器。
 
+反過來，從 `data/fixture/` 刪掉的商圈、車站、路段，匯入商圈與交通時會自動從資料庫清掉，連同那些商圈裡已經抓到的影城、場次、餐廳，不用手動處理。
+
 ## 改用 PostgreSQL
 
 1. 打開 `db/init.sql`，把 `change_me` 改成自己的密碼，用 postgres 管理員帳號執行：
