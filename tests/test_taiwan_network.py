@@ -39,7 +39,7 @@ CINEMAS = [
     ("嘉義秀泰影城", 23.494348, 120.444086, None),
     ("雲林北港秀泰", 23.569749, 120.299199, None),
     ("in89澎湖影城", 23.568284, 119.573911, "澎湖縣/馬公"),
-    ("金獅影城", 24.446036, 118.369248, "金門縣/金湖"),
+    ("金獅影城", 24.446036, 118.369248, None),  # 金門暫時排除：OSM 在影城附近沒有餐廳資料
 ]
 
 # 本島商圈：都要能從台北車站去、也回得來
@@ -99,10 +99,9 @@ def test_dome_is_only_a_transfer_station_now(base):
     assert dome.area_id is None and dome.is_origin
 
 
-# 離島商圈：只能從島上的出發站去
+# 離島商圈：只能從島上的出發站去（金門暫時排除）
 ISLAND_AREAS = {
     "澎湖縣/馬公": ["pen-magong"],
-    "金門縣/金湖": ["kin-jincheng", "kin-shanwai"],
 }
 
 
@@ -116,12 +115,17 @@ def test_island_area_only_reachable_from_the_island(base, area_id, island_origin
         assert _reachable_both_ways(graph, origin, stations), (area_id, origin)
 
 
-def test_twenty_cities_have_areas(base):
+def test_nineteen_cities_have_areas(base):
     areas = base.scalars(select(Area)).all()
-    assert len(areas) == 21
+    assert len(areas) == 20
     cities = {a.city for a in areas}
-    assert len(cities) == 20
-    assert "嘉義縣" not in cities and "連江縣" not in cities
+    assert len(cities) == 19
+    assert not {"嘉義縣", "連江縣", "金門縣"} & cities
+
+
+def test_kinmen_is_excluded_for_now(base):
+    """金門的影城附近 OSM 幾乎沒有標記餐廳，排不出方案，先不列；車站也不留。"""
+    assert not base.scalars(select(Station).where(Station.city == "金門縣")).all()
 
 
 def test_every_area_has_a_station(base):
@@ -174,10 +178,10 @@ def test_station_names_never_render_a_doubled_zhan(base):
 
 def test_island_origin_to_main_island_has_a_clear_message(base):
     req = PlanRequest(date="2026-10-13", origin="tpe-main", area="澎湖縣/馬公")
-    with pytest.raises(ValueError, match="只能從島上出發"):
+    with pytest.raises(ValueError, match="^澎湖只能從島上出發，請改選島上的出發站（例如馬公總站）$"):
         services.plan_date(base, req)
     req = PlanRequest(date="2026-10-13", origin="pen-magong", area="台北市/信義")
-    with pytest.raises(ValueError, match="只能從島上出發"):
+    with pytest.raises(ValueError, match="^澎湖只能從島上出發"):
         services.plan_date(base, req)
 
 

@@ -35,7 +35,8 @@ from .timeutil import WEEKDAY_KEYS, fmt, to_min, today_tw, weekday_label
 from .transit import Edge, Node, TransitGraph
 
 STATION_ALIASES = {"北車": "台北車站", "台北101": "台北101/世貿", "101": "台北101/世貿"}
-ISLAND_CITIES = ("澎湖縣", "金門縣")
+# 和本島之間沒有當天往返的大眾運輸（金門暫時沒有商圈：OSM 在影城附近沒有餐廳資料）
+ISLAND_CITIES = ("澎湖縣",)
 
 
 def _place(row) -> Place:
@@ -109,7 +110,7 @@ def build_context(session: Session, req: PlanRequest, jev: JevService) -> tuple[
         graph.reachable(s.id, origin.id) for s in area_stations
     ):
         if origin.city != area.city and (origin.city in ISLAND_CITIES or area.city in ISLAND_CITIES):
-            raise ValueError("澎湖、金門只能從島上出發，請改選島上的出發站（例如馬公總站、金城車站）")
+            raise ValueError("澎湖只能從島上出發，請改選島上的出發站（例如馬公總站）")
         raise ValueError(f"目前沒有從{origin.city}{planner.station_name(origin.name)}到{area.city}{area.name}的交通資料")
 
     rows = session.execute(
