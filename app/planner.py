@@ -413,6 +413,9 @@ def _keep_restaurant(req: PlanRequest, r: RestaurantInfo, thr: float, asks: dict
 
 PLAN_COUNT = 3
 TOP_MOVIES = 3  # 前幾名的電影要再請 Jev 各選一次餐廳
+# 一題最多給 Jev 幾個選項。排得進去的片、配得上的餐廳更多時，程式先依使用者條件挑前幾名
+# （選項太多 Jev 不容易選，使用者改選的清單也太長）；接正式 Jev API 時依它的上限調整
+MAX_CHOICE_OPTIONS = 8
 
 
 def _subject(req: PlanRequest, *extra: str) -> str:
@@ -434,6 +437,30 @@ def _user_text(req: PlanRequest) -> str:
 def _logistics_key(c: Candidate) -> tuple:
     """同一組片和餐廳有好幾種排法時，程式挑緩衝最充裕、走路最少、最便宜的。"""
     return (min(c.tightest, 30), -c.walk_total, -c.cost, c.tightest)
+
+
+def _top_movies(req: PlanRequest, by_movie: dict[str, list[Candidate]]) -> list[str]:
+    """要給 Jev 選的片：符合想看的片型 → 最寬裕的緩衝 → 排得進去的場次多 → 片名，取前 MAX_CHOICE_OPTIONS 部。"""
+
+    def key(title: str) -> tuple:
+        group = by_movie[title]
+        slots = {(c.showtime.start, c.showtime.cinema.name, c.showtime.label) for c in group}
+        wanted = bool(req.genre) and group[0].showtime.genre == req.genre
+        return (not wanted, -max(c.tightest for c in group), -len(slots), title)
+
+    return sorted(by_movie, key=key)[:MAX_CHOICE_OPTIONS]
+
+
+def _top_restaurants(req: PlanRequest, by_name: dict[str, list[Candidate]]) -> list[str]:
+    """要給 Jev 選的餐廳：符合想吃的料理 → Jev 判斷的約會適合度 → 離影城近 → 店名，取前 MAX_CHOICE_OPTIONS 家。"""
+
+    def key(name: str) -> tuple:
+        best = max(by_name[name], key=_logistics_key)
+        r = best.restaurant
+        wanted = bool(req.cuisines) and r.cuisine.top in req.cuisines
+        return (not wanted, -r.date_fit.prob("適合約會"), walk_minutes(best.showtime.cinema, r.place), name)
+
+    return sorted(by_name, key=key)[:MAX_CHOICE_OPTIONS]
 
 
 def _ask_movie(req: PlanRequest, ctx: PlanContext, by_movie: dict[str, list[Candidate]]) -> JevAnswer:
@@ -468,6 +495,7 @@ def _ask_restaurant(
     by_restaurant: dict[str, list[Candidate]] = defaultdict(list)
     for c in group:
         by_restaurant[c.restaurant.place.name].append(c)
+    by_restaurant = {name: by_restaurant[name] for name in _top_restaurants(req, by_restaurant)}
     names = sorted(by_restaurant)
     question = restaurant_choice_question(movie, names)
     if len(names) == 1:
@@ -501,13 +529,19 @@ def _choice_info(answer: JevAnswer, choice: str, rank: int) -> dict:
             "rank": rank, "source": answer.source}
 
 
-def _jev_pick(req: PlanRequest, ctx: PlanContext, candidates: list[Candidate], asks: dict) -> list[dict]:
-    """Jev 選片、選餐廳；組合的信心＝選片機率 × 選餐廳機率，取前三名。"""
+def _jev_pick(
+    req: PlanRequest, ctx: PlanContext, candidates: list[Candidate], asks: dict, notes: list[str]
+) -> list[dict]:
+    """Jev 選片、選餐廳；組合的信心＝選片機率 × 選餐廳機率，取前三名。選項有縮減時在 notes 說明。"""
     if not candidates:
         return []
     by_movie: dict[str, list[Candidate]] = defaultdict(list)
     for c in candidates:
         by_movie[c.showtime.movie_title].append(c)
+    titles = _top_movies(req, by_movie)
+    if len(titles) < len(by_movie):
+        notes.append(f"排得進去的片有 {len(by_movie)} 部，程式先依想看的片型與時間餘裕挑 {len(titles)} 部讓 Jev 選。")
+        by_movie = {title: by_movie[title] for title in titles}
 
     movie_ans = _ask_movie(req, ctx, by_movie)
     movie_rank = [m for m in sorted(movie_ans.options, key=lambda m: -movie_ans.prob(m)) if movie_ans.prob(m) > 0]
@@ -517,6 +551,12 @@ def _jev_pick(req: PlanRequest, ctx: PlanContext, candidates: list[Candidate], a
     combos = []
     for rank, movie in enumerate(movie_rank[:TOP_MOVIES], start=1):
         rest_ans, by_restaurant = _ask_restaurant(req, ctx, movie, by_movie[movie])
+        total = len({c.restaurant.place.name for c in by_movie[movie]})
+        restaurant_note = (
+            f"配得上的餐廳超過 {MAX_CHOICE_OPTIONS} 家時，程式先依想吃的料理、約會適合度與步行距離挑 {MAX_CHOICE_OPTIONS} 家讓 Jev 選。"
+        )
+        if len(by_restaurant) < total and restaurant_note not in notes:
+            notes.append(restaurant_note)
         if rank == 1 and len(rest_ans.options) > 1 and not rest_ans.confident(ctx.threshold):
             _ask(asks, rest_ans, f"看《{movie}》的話，Jev 不太確定要吃哪一家，你比較想去哪裡？", 5, kind="choice")
         rest_rank = sorted(rest_ans.options, key=lambda n: -rest_ans.prob(n))
@@ -656,9 +696,9 @@ def plan(req: PlanRequest, ctx: PlanContext) -> dict:
                 candidates.append(c)
 
     # 2. Jev 從接得起來的組合裡選片、選餐廳
-    picked = _jev_pick(req, ctx, candidates, asks)
+    notes: list[str] = []
+    picked = _jev_pick(req, ctx, candidates, asks, notes)
 
-    notes = []
     if req.genre and candidates and not any(c.showtime.genre == req.genre for c in candidates):
         notes.append(f"你想看的{req.genre}片在這段時間內排不進去，Jev 改從其他片裡選。")
 

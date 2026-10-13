@@ -197,3 +197,71 @@ def test_fits_window():
     assert _fits_window(req, NS(start=to_min("18:10"), runtime_min=100))  # 18:10 開演、20:02 散場
     assert not _fits_window(req, NS(start=to_min("18:05"), runtime_min=100))  # 要 17:55 到影城
     assert not _fits_window(req, NS(start=to_min("21:00"), runtime_min=100))  # 22:52 才散場
+
+
+def _plan_capturing_questions(session, req):
+    """跑一次排程，記下問了 Jev 哪些題目（選項多少）。"""
+    from app import planner
+    from app.jev import JevService
+
+    ctx, _ = services.build_context(session, req, JevService(session))
+    asked, original = [], ctx.ask
+
+    def ask(question, subject, context):
+        asked.append(question)
+        return original(question, subject, context)
+
+    ctx.ask = ask
+    return planner.plan(req, ctx), asked
+
+
+def test_jev_choices_are_capped(session, saturday, monkeypatch):
+    from app import planner
+
+    monkeypatch.setattr(planner, "MAX_CHOICE_OPTIONS", 3)
+    req = PlanRequest(date=saturday, origin="板橋", depart_after="12:00", home_by="24:30")
+    res, asked = _plan_capturing_questions(session, req)
+    choices = [q for q in asked if q.key in ("movie_choice", "restaurant_choice")]
+    assert {q.key for q in choices} == {"movie_choice", "restaurant_choice"}
+    assert all(len(q.options) <= 3 for q in choices)
+    assert res["plans"]
+    assert res["stats"]["movies_feasible"] > 3  # 統計維持縮減前的數字
+    assert any("挑 3 部" in n for n in res["notes"])
+    assert any("挑 3 家" in n for n in res["notes"])
+
+
+def test_top_movies_prefers_wanted_genre_then_buffer(monkeypatch):
+    from types import SimpleNamespace as NS
+
+    from app import planner
+
+    monkeypatch.setattr(planner, "MAX_CHOICE_OPTIONS", 2)
+
+    def cand(genre, tightest):
+        return NS(showtime=NS(genre=genre, start=1080, cinema=NS(name="影城"), label="數位"), tightest=tightest)
+
+    by_movie = {"甲": [cand("動作", 60)], "乙": [cand("愛情", 10)], "丙": [cand("動作", 30)]}
+    assert planner._top_movies(PlanRequest(date="2026-10-13", genre="愛情"), by_movie) == ["乙", "甲"]
+    assert planner._top_movies(PlanRequest(date="2026-10-13"), by_movie) == ["甲", "丙"]
+
+
+def test_top_restaurants_prefer_wanted_cuisine_then_date_fit(monkeypatch):
+    from types import SimpleNamespace as NS
+
+    from app import planner
+    from app.planner import Place
+
+    monkeypatch.setattr(planner, "MAX_CHOICE_OPTIONS", 2)
+    cinema = Place(1, "影城", 25.0, 121.5)
+
+    def cand(name, cuisine, date_fit):
+        restaurant = NS(
+            place=Place(name, name, 25.0, 121.5),
+            cuisine=NS(top=cuisine),
+            date_fit=NS(prob=lambda option, p=date_fit: p if option == "適合約會" else 0.0),
+        )
+        return NS(restaurant=restaurant, showtime=NS(cinema=cinema), tightest=30, walk_total=10, cost=500)
+
+    by_name = {"甲": [cand("甲", "日式", 0.9)], "乙": [cand("乙", "泰式／南洋", 0.2)], "丙": [cand("丙", "日式", 0.5)]}
+    assert planner._top_restaurants(PlanRequest(date="2026-10-13", cuisines=["泰式／南洋"]), by_name) == ["乙", "甲"]
+    assert planner._top_restaurants(PlanRequest(date="2026-10-13"), by_name) == ["甲", "丙"]
