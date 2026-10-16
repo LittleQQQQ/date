@@ -113,6 +113,7 @@ select:focus, button:focus-visible { outline: 2px solid var(--accent); outline-o
 /* ---------- 結果 ---------- */
 .summary p { margin: 0; font-size: 17px; }
 .summary .by { margin-top: 8px; font-size: 13px; color: var(--muted); }
+.summary .notice { margin-top: 10px; font-size: 14px; background: var(--warn-bg); color: var(--warn-ink); border-radius: 8px; padding: 6px 10px; }
 
 .loading { color: var(--muted); }
 
@@ -133,6 +134,8 @@ select:focus, button:focus-visible { outline: 2px solid var(--accent); outline-o
   background: var(--accent-soft); color: var(--accent);
 }
 .plan h3 { font-size: 19px; margin-top: 8px; }
+.plan h3 a { color: inherit; text-decoration: underline; text-decoration-color: var(--bar); text-underline-offset: 3px; }
+.plan .credit { margin: 0; font-size: 12px; color: var(--muted); }
 .plan .sub { margin: 4px 0 0; color: var(--muted); font-size: 14px; }
 .plan .jev-line { margin: 6px 0 0; font-size: 13px; color: var(--accent); }
 .opt-prob { margin-left: 6px; font-size: 12px; color: var(--muted); font-weight: 400; }

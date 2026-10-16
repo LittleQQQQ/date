@@ -133,6 +133,11 @@ def parse_opening_hours(text: str) -> dict[str, list[str] | None] | None:
         return None if applied else {"default": ["00:00", "24:00"]}
     if not applied:
         return None
+    return week_hours(week)
+
+
+def week_hours(week: list[tuple[int, int] | None]) -> dict[str, list[str] | None]:
+    """星期一到日的營業時段（分鐘數，None 為公休）→ 專案格式：最常見的時段當 default，其他星期另外列。"""
     counts = Counter(week)
     default = max(counts, key=lambda s: (counts[s], s is not None))  # 一樣多時，營業的時段優先
     hours = {"default": _fmt(default)}

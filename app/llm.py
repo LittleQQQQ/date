@@ -1,7 +1,7 @@
 """LLM（本機 Ollama）：只負責「語言」——把一句話轉成條件，以及把結果寫成口語摘要。
 
 - 時間、金額、行程都由程式計算，LLM 只能引用，不能改。
-- 日期、出發站、片名這類規則就能準確抓到的欄位，以規則為準；LLM 補其他欄位。
+- 日期、出發站、片名、時間、預算這類規則就能準確抓到的欄位，以規則為準；LLM 補其他欄位。
 - Ollama 沒開或失敗時，改用規則解析和範本摘要，Demo 不會卡住。
 """
 from __future__ import annotations
@@ -9,6 +9,7 @@ from __future__ import annotations
 import datetime as dt
 import json
 import re
+from collections.abc import Iterable
 
 import httpx
 
@@ -265,8 +266,28 @@ def _from_llm(raw: dict, today: dt.date, meta: dict) -> dict:
     return out
 
 
-RULES_FIRST = ("date", "origin", "area", "movie_query")
+# 規則有抓到就用規則的；時間和金額也算在內，因為小模型轉述數字常出錯（「十點前到家」寫成 20:00）
+RULES_FIRST = ("date", "origin", "area", "movie_query", "depart_after", "home_by", "budget_per_person")
 LIST_FIELDS = ("screen_types", "cuisines")
+
+
+def _default_places(fields: dict, sources: dict, meta: dict) -> None:
+    """句子沒提到商圈或出發站時，從開放範圍內挑（PlanRequest 的預設值不一定在開放範圍內）。
+    商圈：出發站服務的商圈，沒有就挑同縣市第一個；出發站：商圈所在縣市的第一個（大站排前面，和網頁預設一樣）。
+    開放範圍內還沒有商圈有場次時不挑，讓呼叫端回報資料還沒好。"""
+    areas, origins = meta["areas"], meta["origins"]
+    if "area" not in fields and areas:
+        origin = next((o for o in origins if o["id"] == fields.get("origin")), None)
+        if origin and any(a["id"] == origin.get("area") for a in areas):
+            fields["area"] = origin["area"]
+        else:
+            same_city = [a for a in areas if origin and a["city"] == origin["city"]]
+            fields["area"] = (same_city or areas)[0]["id"]
+        sources["area"] = "預設"
+    if "origin" not in fields and origins:
+        city = next((a["city"] for a in areas if a["id"] == fields.get("area")), None)
+        fields["origin"] = ([o for o in origins if o["city"] == city] or origins)[0]["id"]
+        sources["origin"] = "預設"
 
 
 async def parse_request(text: str, today: dt.date, meta: dict) -> tuple[dict, dict]:
@@ -301,6 +322,7 @@ async def parse_request(text: str, today: dt.date, meta: dict) -> tuple[dict, di
             fields[key], sources[key] = first[key], "規則" if first is rules else "LLM"
         else:
             fields[key], sources[key] = second[key], "規則" if second is rules else "LLM"
+    _default_places(fields, sources, meta)
 
     info = {
         "mode": "llm" if llm_error is None else "rules",
@@ -354,9 +376,20 @@ _NUMBER_LIKE = re.compile(
 )
 
 
-def has_numbers(text: str) -> bool:
-    """推薦理由裡不能有任何數字。小模型轉述時間、金額常常出錯，例如把 14:21 寫成「下午四點」。"""
+def has_numbers(text: str, names: Iterable[str] = ()) -> bool:
+    """推薦理由裡不能有任何數字。小模型轉述時間、金額常常出錯，例如把 14:21 寫成「下午四點」。
+    names 是我們給 LLM 的店名、片名這類名稱，名稱裡本來就有的數字（定食8、粽邪4、3D）照抄不算。"""
+    for name in sorted(names, key=len, reverse=True):
+        text = text.replace(name, "\0")
     return bool(_NUMBER_LIKE.search(text))
+
+
+def _plan_names(plans: list[dict]) -> set[str]:
+    names: set[str] = set()
+    for p in plans:
+        m, r = p["movie"], p["restaurant"]
+        names |= {r["name"], m["title"], m["cinema"], m["label"]}
+    return {n for n in names if n}
 
 
 async def summarize(result: dict) -> tuple[str, str]:
@@ -371,7 +404,7 @@ async def summarize(result: dict) -> tuple[str, str]:
     facts = []
     for p in plans:
         m, r = p["movie"], p["restaurant"]
-        movie = f"在{m['cinema']}看《{m['title']}》（{m['label']}）"
+        movie = f"在{m['cinema']}看《{m['title']}》（版本：{m['label']}）"  # 標明是版本，免得「水影威尼斯」被當成餐廳
         meal = f"到{r['name']}吃飯（{r['cuisine']}，約會適合度：{r['date_fit']}）"
         middle = f"{movie}，看完再{meal}" if p["order"] == "movie_first" else f"先{meal}，再{movie}"
         line = f"{p['label']}：{middle}"
@@ -396,6 +429,6 @@ async def summarize(result: dict) -> tuple[str, str]:
     except LLMUnavailable:
         return facts_summary, "template"
     reason = reason.strip()
-    if not reason or has_numbers(reason):
+    if not reason or has_numbers(reason, _plan_names(plans)):
         return facts_summary, "template"
     return f"{facts_summary}{reason}", "llm"

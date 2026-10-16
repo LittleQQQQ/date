@@ -203,10 +203,16 @@ function renderStatus(meta, status) {
     `<li class="chip">${llmChip}</li>`,
     `<li class="chip">${dataChip(meta, status?.refresh)}</li>`,
   ].join("");
-  const counts = `目前有 ${meta.areas.length} 個商圈、${meta.counts.cinemas} 家影城、${meta.counts.restaurants} 家餐廳的資料。`;
+  const google = meta.restaurants?.source === "google";
+  const counts = google
+    ? `目前有 ${meta.areas.length} 個商圈、${meta.counts.cinemas} 家影城的資料，餐廳在排程時即時查詢 Google 地圖。`
+    : `目前有 ${meta.areas.length} 個商圈、${meta.counts.cinemas} 家影城、${meta.counts.restaurants} 家餐廳的資料。`;
+  const restaurantCredit = google
+    ? "Google Maps（查詢失敗時改用 © OpenStreetMap 貢獻者的資料，ODbL）"
+    : "© OpenStreetMap 貢獻者（ODbL）";
   const credit = meta.data.is_demo
     ? "影城、餐廳、場次與交通班次目前為示意資料，僅供展示流程。"
-    : "電影與場次：開眼電影網・餐廳：© OpenStreetMap 貢獻者（ODbL）・交通：估計值。";
+    : `電影與場次：開眼電影網・餐廳：${restaurantCredit}・交通：估計值。`;
   $("#foot").innerHTML = `${counts}${credit}`;
 }
 
@@ -251,7 +257,8 @@ function renderSummary(result, summary, source) {
   const text = summary || (result.plans.length
     ? `從 ${result.stats.feasible} 個接得起來的組合裡，Jev 選出 ${result.plans.length} 個方案。${(result.notes || []).join("")}`
     : "找不到接得起來的行程，看看下面的原因，或放寬條件再試一次。");
-  return `<section class="card summary"><p>${esc(text)}</p><p class="by">${by}</p></section>`;
+  const note = result.restaurant_source?.note ? `<p class="notice">${esc(result.restaurant_source.note)}</p>` : "";
+  return `<section class="card summary"><p>${esc(text)}</p>${note}<p class="by">${by}</p></section>`;
 }
 
 function confirmItem(item) {
@@ -321,9 +328,14 @@ function renderJev(p) {
     </details>`;
 }
 
-function renderPlan(p) {
+function renderPlan(p, restaurantSource) {
   const m = p.movie;
   const r = p.restaurant;
+  const restaurantName = /^https?:\/\//.test(r.url ?? "")
+    ? `<a href="${esc(r.url)}" target="_blank" rel="noopener">${esc(r.name)}</a>`
+    : esc(r.name);
+  // 餐廳資料來自 Google 時，依 Google 的規定要標示來源
+  const credit = restaurantSource?.source === "google" ? `<p class="credit">餐廳資料：Google Maps</p>` : "";
   const steps = p.steps.map((s) => `
     <li class="step-${esc(s.kind)}">
       <time>${esc(s.time)}</time>
@@ -340,7 +352,7 @@ function renderPlan(p) {
     <article class="card plan">
       <header>
         ${p.labels.map((l) => `<span class="pill">${esc(l)}</span>`).join(" ")}
-        <h3>${esc(m.start)}《${esc(m.title)}》→ ${esc(r.name)}</h3>
+        <h3>${esc(m.start)}《${esc(m.title)}》→ ${restaurantName}</h3>
         <p class="sub">${esc(m.genre ? `${m.genre}片・` : "")}${esc(m.cinema)}・${esc(m.label)}・${esc(p.order_text)}</p>
         <p class="jev-line">Jev 選片 ${Math.round(p.jev_choice.movie.prob * 100)}% × 選餐廳 ${Math.round(p.jev_choice.restaurant.prob * 100)}%
           ＝ 組合信心 ${Math.round(p.jev_confidence * 100)}%</p>
@@ -356,6 +368,7 @@ function renderPlan(p) {
       <ol class="timeline">${steps}</ol>
       ${tips}
       ${renderJev(p)}
+      ${credit}
     </article>`;
 }
 
@@ -385,7 +398,9 @@ function renderResult({ result, summary, summary_source: source }) {
   $("#results").innerHTML = [
     renderSummary(result, summary, source),
     renderConfirmations(result.confirmations),
-    result.plans.length ? `<div class="plans">${result.plans.map(renderPlan).join("")}</div>` : "",
+    result.plans.length
+      ? `<div class="plans">${result.plans.map((p) => renderPlan(p, result.restaurant_source)).join("")}</div>`
+      : "",
     renderDiagnostics(result),
   ].join("");
 }

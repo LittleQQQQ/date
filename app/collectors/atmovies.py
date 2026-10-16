@@ -3,7 +3,7 @@
 一個網站涵蓋全台幾乎所有影城。只抓有商圈的縣市，而且只留走得到商圈車站的影城。
 - 地區頁 /showtime/{地區}/              → 影城清單
 - 地圖頁 GMap2018.cfm?tid={影城}         → 經緯度（快取 30 天）
-- 時刻表 /showtime/{影城}/{地區}/[日期]/ → 地址、每部片的片長、版本、場次（今天起 4 天）
+- 時刻表 /showtime/{影城}/{地區}/[日期]/ → 地址、每部片的片長、版本、場次（今天起最多 7 天）
 - 電影頁 /movie/{電影}/                  → 劇情簡介（快取 30 天）
 網站沒有票價和片型：票價依版本估計（標成估計），片型交給 Jev 判斷。
 """
@@ -22,7 +22,9 @@ from .http import Fetcher, FetchError
 
 BASE_URL = "https://www.atmovies.com.tw"
 MAP_URL = "http://ww2.atmovies.com.tw/movie/GMap2018.cfm?tid={tid}"
-SITE_DAYS = 4  # 網站提供今天起幾天的時刻表
+# 影城每週公布一次下一週的場次，網站上查得到的天數會變（週初常常只到週四，公布後可以到 6 天以上）
+SITE_DAYS = 7  # 最多抓今天起幾天
+REQUIRED_DAYS = 4  # 前 4 天任何一頁抓失敗，這家影城就保留上次的場次；之後的天數遇到抓不到或還沒公布就停
 CACHE_DAYS = 30  # 地圖頁、電影頁很少變
 SYNOPSIS_MAX = 600
 NAME_MAX, ADDRESS_MAX, TITLE_MAX, LABEL_MAX = 50, 200, 100, 50  # 資料表欄位的長度（models.py），Postgres 超過會整批失敗
@@ -212,8 +214,9 @@ class AtmoviesCollector(Collector):
     def _theater(
         self, theater: TheaterLink, region: str, dates: list[dt.date], today: dt.date
     ) -> tuple[CinemaRecord, list[FilmShowing], list[ShowtimeRecord]] | None:
-        """抓一家影城。不在商圈範圍、或任何一頁抓失敗就回傳 None（保留這家影城上次的場次）。
+        """抓一家影城。不在商圈範圍、或前 REQUIRED_DAYS 天有一頁抓失敗就回傳 None（保留這家影城上次的場次）。
 
+        之後的天數是加抓的：抓不到、日期不對就停在那裡，還沒公布（沒有場次）的那天之後也不再抓，前面抓到的照用。
         self.attempted 記有多少家影城在商圈內（或地圖抓不到、不知道在不在）而試著抓過，
         用來分辨「商圈內的影城全部失敗」和「商圈附近本來就沒有影城」。
         """
@@ -237,15 +240,19 @@ class AtmoviesCollector(Collector):
         pages = []
         for day in dates:
             url = theater_url(theater.tid, region, day, today)
+            required = (day - today).days < REQUIRED_DAYS
             try:
                 page = parse_theater_day(self.fetcher.get(url))
-            except (FetchError, ValueError):  # 抓不到、或頁面壞掉（例如日期不存在）：只跳過這家
+            except (FetchError, ValueError):  # 抓不到、或頁面壞掉（例如日期不存在）
+                page = None
+            if page is None or page.date != day:  # 日期不對：網站正在換日或頁面不對
                 self.failed += 1
-                return None
-            if page.date != day:  # 網站正在換日或頁面不對，這家這次先不更新
-                self.failed += 1
-                return None
+                if required:
+                    return None  # 只跳過這家，這次先不更新
+                break
             pages.append((day, url, page))
+            if not required and not page.films:
+                break  # 這天的場次還沒公布，後面的天數也不會有
 
         cinema = CinemaRecord(
             external_id=theater.tid, name=theater.name[:NAME_MAX], area_id=area,

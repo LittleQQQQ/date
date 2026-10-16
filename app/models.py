@@ -158,6 +158,18 @@ class JevJudgment(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=now_tw)
 
 
+class ApiUsage(Base):
+    """付費 API 每天的呼叫次數（目前只有 Google Places），用來擋住超過每日上限的呼叫。"""
+
+    __tablename__ = "api_usage"
+    __table_args__ = (UniqueConstraint("api", "day"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    api: Mapped[str] = mapped_column(String(30))
+    day: Mapped[str] = mapped_column(String(10))  # YYYY-MM-DD（台灣時間）
+    calls: Mapped[int] = mapped_column(Integer, default=0)
+
+
 class ScrapeRun(Base):
     """每次執行資料來源（示意資料或爬蟲）的紀錄。"""
 

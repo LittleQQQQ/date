@@ -54,6 +54,8 @@ async def post_plan(req: PlanRequest) -> dict:
 async def post_chat(body: ChatRequest, session: Session = Depends(get_session)) -> dict:
     """自然語言 API（網頁目前沒用到）：一句話 → LLM 解析條件 → 透過 MCP 呼叫 plan_date → LLM 寫摘要。"""
     fields, parse_info = await llm.parse_request(body.message, today_tw(), services.meta(session))
+    if "area" not in fields:  # 開放範圍內還沒有商圈有場次，例如第一次啟動、資料還在抓
+        raise HTTPException(400, "還沒有可以排程的商圈資料，資料可能還在更新，請稍後再試")
     try:
         req = PlanRequest(**fields)
     except ValidationError as exc:
