@@ -47,6 +47,11 @@ class Settings(BaseSettings):
     # 程式每天最多呼叫 Google Places 幾次（台灣時間換日），和 Cloud Console 的配額雙重把關
     google_places_daily_limit: int = Field(30, ge=0)
 
+    # 交通：填了交通部 TDX 的 Client Id 與 Client Secret，每週從 TDX 更新台鐵、公車的班次與票價；
+    # 留空就用 data/fixture/ 手寫的估計值
+    tdx_client_id: str = ""
+    tdx_client_secret: str = ""
+
     # 開放哪些縣市（逗號分隔，例如 桃園市,台北市）；留空 = 全台。
     # 範圍外的縣市不列在選單、不能排程、爬蟲不更新，但資料留在資料庫，改回來就能恢復
     active_cities: str = "桃園市"
@@ -66,6 +71,10 @@ class Settings(BaseSettings):
     @property
     def use_google_places(self) -> bool:
         return bool(self.google_places_api_key.strip())
+
+    @property
+    def use_tdx(self) -> bool:
+        return bool(self.tdx_client_id.strip() and self.tdx_client_secret.strip())
 
 
 settings = Settings()

@@ -78,6 +78,15 @@ class TransitLinkRecord(BaseModel):
         return value
 
 
+class TransitFareRecord(BaseModel):
+    """某條路線從 from 站搭到 to 站的每人車資（成人全票）。"""
+
+    from_station_id: str
+    to_station_id: str
+    line: str
+    fare: int = Field(ge=0)
+
+
 class CinemaRecord(BaseModel):
     external_id: str
     name: str
@@ -148,6 +157,7 @@ class Batch(BaseModel):
     areas: list[AreaRecord] = Field(default_factory=list)
     stations: list[StationRecord] = Field(default_factory=list)
     transit_links: list[TransitLinkRecord] = Field(default_factory=list)
+    transit_fares: list[TransitFareRecord] = Field(default_factory=list)
     cinemas: list[CinemaRecord] = Field(default_factory=list)
     movies: list[MovieRecord] = Field(default_factory=list)
     showtimes: list[ShowtimeRecord] = Field(default_factory=list)
@@ -162,6 +172,8 @@ class Batch(BaseModel):
     stats: dict[str, int] = Field(default_factory=dict)
     # True：這批是完整的商圈與交通（base）。資料庫裡這批沒有的路段、車站、商圈（連同其中的影城、場次、餐廳）會被刪掉
     replace_network: bool = False
+    # True：這批是這個來源的全部路段與車資（TDX）。資料庫裡同來源、這批沒有的路段和車資會被刪掉
+    replace_source_links: bool = False
 
 
 class ScrapeError(Exception):
@@ -172,6 +184,8 @@ class Collector(ABC):
     name: str = ""  # 也會寫進資料表的 source 欄位
     # True：建立時要傳入 coverage（資料庫裡的商圈與車站），由 get_collector 準備
     needs_coverage: bool = False
+    # True：建立時要傳入 network（資料庫裡手寫的路網骨架），由 get_collector 準備
+    needs_network: bool = False
 
     @abstractmethod
     def collect(self, start: dt.date, days: int) -> Batch:

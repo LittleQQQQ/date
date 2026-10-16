@@ -11,7 +11,7 @@ from collections import Counter, defaultdict
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
-from .fares import leg_fare, route_fare
+from .fares import fare_estimated, leg_cost, route_fare
 from .geo import walk_minutes
 from .jev.questions import (
     DATE_FIT,
@@ -133,11 +133,16 @@ class TripOption:
     route: Route
     station: Place  # 商圈這一頭的車站
     walk: int  # 這個車站和影城或餐廳之間走幾分鐘
-    fare: int  # 每人車資（估計）
+    fare: int  # 每人車資
 
     @property
     def label(self) -> str:
         return self.route.label
+
+    @property
+    def fare_estimated(self) -> bool:
+        """有沒有哪一段的車資是估計的（沒有 TDX 真實票價）。"""
+        return fare_estimated(self.route)
 
 
 @dataclass(frozen=True)
@@ -302,7 +307,8 @@ def _transit_steps(route: Route, departing: bool) -> list[Step]:
         title = f"搭{leg.label}到{station_name(leg.to_name)}"
         if departing and i == 0:
             title = f"從{station_name(leg.from_name)}出發，{title}"
-        detail = f"車程 {leg.ride_min} 分鐘，等車最久 {leg.wait} 分鐘，車資約 {leg_fare(leg.mode, leg.ride_min)} 元"
+        fare = f"車資 {leg.fare} 元" if leg.fare is not None else f"車資約 {leg_cost(leg)} 元"
+        detail = f"車程 {leg.ride_min} 分鐘，等車最久 {leg.wait} 分鐘，{fare}"
         if leg.transfer_min:
             detail = f"在{station_name(leg.from_name)}轉乘（步行 {leg.transfer_min} 分鐘）；{detail}"
         steps.append(Step(leg.ready - leg.transfer_min, leg.alight, "transit", title, detail))
@@ -725,7 +731,7 @@ def _trip_text(o: TripOption, going: bool) -> str:
     when = f"{fmt(r.depart)} 出門、{fmt(r.arrive)} 到站" if going else f"{fmt(r.depart)} 開始等車、{fmt(r.arrive)} 到家"
     text = (
         f"「{o.label}」：{when}，車程 {ride} 分鐘（不含等車），轉乘 {_transfers(r)} 次，"
-        f"最久等車 {longest_wait} 分鐘，每人車資約 {o.fare} 元（估計）"
+        f"最久等車 {longest_wait} 分鐘，每人車資" + (f"約 {o.fare} 元（估計）" if o.fare_estimated else f" {o.fare} 元")
     )
     margin = None if going else _last_margin(r)
     if margin is not None:
@@ -833,7 +839,7 @@ ESTIMATE_NOTES = (
     ("restaurant", "hours", "營業時間為估計，出發前請先確認"),
     ("restaurant", "price", "價位為估計"),
 )
-FARE_NOTE = "車資為估計"  # 車資一律是估計（app/fares.py）
+FARE_NOTE = "車資為估計"  # 有哪一段沒有 TDX 真實票價時才標（app/fares.py）
 
 
 def _estimate_notes(showtime, restaurant) -> list[str]:
@@ -907,7 +913,7 @@ def _plan_dict(labels: list[str], pick: dict) -> dict:
         "steps": [step.to_dict() for step in c.steps],
         "flags": c.flags,
         "tips": c.tips,
-        "estimates": _estimate_notes(s, r) + ([FARE_NOTE] if c.go.fare + c.back.fare else []),
+        "estimates": _estimate_notes(s, r) + ([FARE_NOTE] if c.go.fare_estimated or c.back.fare_estimated else []),
         "jev": [a.to_dict() for a in attributes if a is not None],
     }
 

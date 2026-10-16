@@ -5,6 +5,7 @@
   同一個來源重複抓到同一筆資料時，用 (source, external_id) 找到舊資料更新，而不是新增一筆。
 - 片名、場次標示、餐廳介紹、評論都保留原始文字，這些是 Jev 的判斷對象。
 - 交通是一張路網：stations 是點，transit_links 是有方向的路段（同一條路線的相鄰停靠站）。
+  手寫的路段（base）是骨架；TDX 有資料的路段另存一筆（source = tdx），排程時同一段、同一種交通方式以 TDX 為準。
 """
 from __future__ import annotations
 
@@ -15,6 +16,8 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from .db import Base
 from .timeutil import now_tw
+
+TDX_SOURCE = "tdx"  # TDX 的路段與車資（app/collectors/tdx.py），排程時優先於手寫的估計值
 
 
 class Area(Base):
@@ -62,6 +65,21 @@ class TransitLink(Base):
     headway_min: Mapped[int] = mapped_column(Integer)  # 班距，用來估最久要等多久
     first_train: Mapped[str] = mapped_column(String(5))  # 從 from 站發車的首班時間
     last_train: Mapped[str] = mapped_column(String(5))  # 從 from 站發車的末班時間
+    source: Mapped[str] = mapped_column(String(30))
+    fetched_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
+class TransitFare(Base):
+    """路段的真實車資（每人單程、成人全票），目前只有 TDX 提供；沒有的路段由 app/fares.py 估計。"""
+
+    __tablename__ = "transit_fares"
+    __table_args__ = (UniqueConstraint("from_station_id", "to_station_id", "line"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    from_station_id: Mapped[str] = mapped_column(ForeignKey("stations.id"))
+    to_station_id: Mapped[str] = mapped_column(ForeignKey("stations.id"))
+    line: Mapped[str] = mapped_column(String(50))  # 和 transit_links.line 對應
+    fare: Mapped[int] = mapped_column(Integer)
     source: Mapped[str] = mapped_column(String(30))
     fetched_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 

@@ -37,6 +37,7 @@ class Edge:
     headway_min: int
     first: int  # 從 from 站發車的首班（分鐘）
     last: int  # 從 from 站發車的末班（分鐘）
+    fare: int | None = None  # 真實車資（TDX）；None 代表由 app/fares.py 估計
 
 
 @dataclass
@@ -53,6 +54,7 @@ class Leg:
     alight: int  # 下車
     ride_min: int  # 車程（不含等車）
     last: int  # 上車站這條路線的末班時間
+    fare: int | None = None  # 真實車資；同一條路線連續坐好幾段時是各段相加，有一段沒有就是 None（改用估計）
 
     @property
     def wait(self) -> int:
@@ -134,6 +136,7 @@ class TransitGraph:
                 leg.to_name = self.nodes[e.to_id].name
                 leg.ride_min += e.ride_min
                 leg.alight = t = t + e.ride_min
+                leg.fare = None if leg.fare is None or e.fare is None else leg.fare + e.fare
                 continue
             transfer = self.nodes[e.from_id].transfer_min if line is not None else 0
             ready = t + transfer
@@ -153,6 +156,7 @@ class TransitGraph:
                     alight=t,
                     ride_min=e.ride_min,
                     last=e.last,
+                    fare=e.fare,
                 )
             )
             line = e.line

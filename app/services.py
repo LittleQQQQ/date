@@ -30,7 +30,9 @@ from .jev import (
     diet_question,
 )
 from .jev.service import label_subject, place_subject, restaurant_context, restaurant_subject, title_subject
-from .models import Area, Cinema, Movie, Restaurant, ScrapeRun, Showtime, Station, TransitLink
+from .models import (
+    TDX_SOURCE, Area, Cinema, Movie, Restaurant, ScrapeRun, Showtime, Station, TransitFare, TransitLink,
+)
 from .planner import Place, PlanContext, RestaurantInfo, ShowtimeInfo
 from .regions import TAIWAN_CITIES
 from .schemas import PlanRequest
@@ -107,13 +109,19 @@ def load_restaurants(
 
 
 def load_graph(session: Session) -> TransitGraph:
+    """路網：同一段、同一種交通方式有 TDX 的資料就用 TDX 的，手寫的估計值不用；路段有真實車資就帶上。"""
     nodes = [Node(s.id, s.name, s.transfer_min) for s in session.scalars(select(Station))]
+    links = list(session.scalars(select(TransitLink)))
+    real = {(l.from_station_id, l.to_station_id, l.mode) for l in links if l.source == TDX_SOURCE}
+    fares = {(f.from_station_id, f.to_station_id, f.line): f.fare for f in session.scalars(select(TransitFare))}
     edges = [
         Edge(
             link.from_station_id, link.to_station_id, link.mode, link.line, link.ride_min, link.headway_min,
             to_min(link.first_train), to_min(link.last_train),
+            fares.get((link.from_station_id, link.to_station_id, link.line)),
         )
-        for link in session.scalars(select(TransitLink))
+        for link in links
+        if link.source == TDX_SOURCE or (link.from_station_id, link.to_station_id, link.mode) not in real
     ]
     return TransitGraph(nodes, edges)
 
@@ -354,7 +362,7 @@ def check_route(session: Session, origin: str, area: str = "台北市/信義", d
     return out
 
 
-SOURCE_LABELS = {"atmovies": "開眼", "osm": "OSM", "base": "商圈與交通", "fixture": "示意資料"}
+SOURCE_LABELS = {"atmovies": "開眼", "osm": "OSM", "base": "商圈與交通", "fixture": "示意資料", "tdx": "TDX 交通"}
 
 
 def _in_open_area(area_id_column):

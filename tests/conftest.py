@@ -14,6 +14,8 @@ os.environ["MCP_CLIENT_URL"] = ""
 os.environ["AUTO_REFRESH"] = "false"
 os.environ["ACTIVE_CITIES"] = ""
 os.environ["GOOGLE_PLACES_API_KEY"] = ""  # .env 裡填了金鑰也不要連 Google；要測的測試自己設定
+os.environ["TDX_CLIENT_ID"] = ""  # TDX 也一樣：測試不連網，也不耗用金鑰額度
+os.environ["TDX_CLIENT_SECRET"] = ""
 
 
 @pytest.fixture(scope="session")
