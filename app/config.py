@@ -39,6 +39,14 @@ class Settings(BaseSettings):
     auto_refresh: bool = True
     refresh_hour: int = Field(6, ge=0, le=23)
 
+    # 餐廳：填了 Google Places API (New) 的金鑰，排程時就即時查 Google（依條款不存店家資料）；
+    # 留空、查詢失敗或超過每日上限時，用資料庫裡每週從 OSM 抓的餐廳
+    google_places_api_key: str = ""
+    # true = 多要評論、可訂位、素食、店家簡介（計費等級 Enterprise + Atmosphere）；false = 只要營業時間、價位等（Enterprise）
+    google_places_atmosphere: bool = True
+    # 程式每天最多呼叫 Google Places 幾次（台灣時間換日），和 Cloud Console 的配額雙重把關
+    google_places_daily_limit: int = Field(30, ge=0)
+
     # 開放哪些縣市（逗號分隔，例如 桃園市,台北市）；留空 = 全台。
     # 範圍外的縣市不列在選單、不能排程、爬蟲不更新，但資料留在資料庫，改回來就能恢復
     active_cities: str = "桃園市"
@@ -54,6 +62,10 @@ class Settings(BaseSettings):
     @property
     def db_url(self) -> str:
         return self.database_url.strip() or SQLITE_FALLBACK
+
+    @property
+    def use_google_places(self) -> bool:
+        return bool(self.google_places_api_key.strip())
 
 
 settings = Settings()

@@ -1,0 +1,72 @@
+{
+  "places": [
+    {"id": "gp-ramen", "displayName": {"text": "巷口拉麵", "languageCode": "zh-TW"},
+     "formattedAddress": "台北市信義區測試路 1 號", "location": {"latitude": 25.0372, "longitude": 121.5679},
+     "primaryType": "ramen_restaurant", "types": ["ramen_restaurant", "japanese_restaurant", "restaurant", "food", "point_of_interest", "establishment"],
+     "googleMapsUri": "https://maps.google.com/?cid=1001", "businessStatus": "OPERATIONAL",
+     "regularOpeningHours": {"periods": [
+       {"open": {"day": 0, "hour": 11, "minute": 30}, "close": {"day": 0, "hour": 14, "minute": 30}},
+       {"open": {"day": 0, "hour": 17, "minute": 30}, "close": {"day": 0, "hour": 21, "minute": 30}},
+       {"open": {"day": 2, "hour": 11, "minute": 30}, "close": {"day": 2, "hour": 14, "minute": 30}},
+       {"open": {"day": 2, "hour": 17, "minute": 30}, "close": {"day": 2, "hour": 21, "minute": 30}},
+       {"open": {"day": 3, "hour": 11, "minute": 30}, "close": {"day": 3, "hour": 14, "minute": 30}},
+       {"open": {"day": 3, "hour": 17, "minute": 30}, "close": {"day": 3, "hour": 21, "minute": 30}},
+       {"open": {"day": 4, "hour": 11, "minute": 30}, "close": {"day": 4, "hour": 14, "minute": 30}},
+       {"open": {"day": 4, "hour": 17, "minute": 30}, "close": {"day": 4, "hour": 21, "minute": 30}},
+       {"open": {"day": 5, "hour": 11, "minute": 30}, "close": {"day": 5, "hour": 14, "minute": 30}},
+       {"open": {"day": 5, "hour": 17, "minute": 30}, "close": {"day": 5, "hour": 21, "minute": 30}},
+       {"open": {"day": 6, "hour": 11, "minute": 30}, "close": {"day": 6, "hour": 14, "minute": 30}},
+       {"open": {"day": 6, "hour": 17, "minute": 30}, "close": {"day": 6, "hour": 21, "minute": 30}}
+     ]},
+     "priceRange": {"startPrice": {"currencyCode": "TWD", "units": "200"}, "endPrice": {"currencyCode": "TWD", "units": "400"}},
+     "rating": 4.3, "userRatingCount": 1234, "reservable": false,
+     "reviews": [{"text": {"text": "湯頭濃郁，出餐很快", "languageCode": "zh-TW"}}]},
+
+    {"id": "gp-bistro", "displayName": {"text": "微光義式餐館"},
+     "formattedAddress": "台北市信義區測試路 2 號", "location": {"latitude": 25.0362, "longitude": 121.5664},
+     "primaryType": "italian_restaurant", "types": ["italian_restaurant", "restaurant", "food"],
+     "googleMapsUri": "https://maps.google.com/?cid=1002", "businessStatus": "OPERATIONAL",
+     "regularOpeningHours": {"periods": [
+       {"open": {"day": 0, "hour": 11}, "close": {"day": 0, "hour": 22}},
+       {"open": {"day": 2, "hour": 11}, "close": {"day": 2, "hour": 22}},
+       {"open": {"day": 3, "hour": 11}, "close": {"day": 3, "hour": 22}},
+       {"open": {"day": 4, "hour": 11}, "close": {"day": 4, "hour": 22}},
+       {"open": {"day": 5, "hour": 11}, "close": {"day": 5, "hour": 22}},
+       {"open": {"day": 6, "hour": 11}, "close": {"day": 6, "hour": 22}}
+     ]},
+     "priceLevel": "PRICE_LEVEL_MODERATE", "reservable": true, "servesVegetarianFood": true,
+     "editorialSummary": {"text": "燈光昏黃、氣氛浪漫的義式餐館"},
+     "reviews": [{"text": {"text": "很適合約會，燉飯好吃"}}, {"text": {"text": "座位寬敞安靜"}}]},
+
+    {"id": "gp-bar", "displayName": {"text": "夜貓小酒館"},
+     "location": {"latitude": 25.0400, "longitude": 121.5660},
+     "primaryType": "bar", "types": ["bar", "restaurant", "point_of_interest"],
+     "googleMapsUri": "https://maps.google.com/?cid=1003", "businessStatus": "OPERATIONAL",
+     "regularOpeningHours": {"periods": [
+       {"open": {"day": 0, "hour": 19}, "close": {"day": 1, "hour": 2}},
+       {"open": {"day": 1, "hour": 19}, "close": {"day": 2, "hour": 2}},
+       {"open": {"day": 2, "hour": 19}, "close": {"day": 3, "hour": 2}},
+       {"open": {"day": 3, "hour": 19}, "close": {"day": 4, "hour": 2}},
+       {"open": {"day": 4, "hour": 19}, "close": {"day": 5, "hour": 2}},
+       {"open": {"day": 5, "hour": 19}, "close": {"day": 6, "hour": 2}},
+       {"open": {"day": 6, "hour": 19}, "close": {"day": 0, "hour": 2}}
+     ]}},
+
+    {"id": "gp-24h", "displayName": {"text": "整夜漢堡"},
+     "location": {"latitude": 25.0335, "longitude": 121.5640},
+     "primaryType": "hamburger_restaurant", "types": ["hamburger_restaurant", "fast_food_restaurant", "restaurant"],
+     "googleMapsUri": "https://maps.google.com/?cid=1004", "businessStatus": "OPERATIONAL",
+     "regularOpeningHours": {"periods": [{"open": {"day": 0, "hour": 0, "minute": 0}}]},
+     "priceRange": {"startPrice": {"currencyCode": "TWD", "units": "150"}}},
+
+    {"id": "gp-cafe", "displayName": {"text": "森林咖啡"},
+     "location": {"latitude": 25.0345, "longitude": 121.5655},
+     "primaryType": "cafe", "types": ["cafe", "food"], "businessStatus": "OPERATIONAL"},
+
+    {"id": "gp-closed", "displayName": {"text": "已歇業小館"},
+     "location": {"latitude": 25.0390, "longitude": 121.5650},
+     "types": ["restaurant"], "businessStatus": "CLOSED_PERMANENTLY"},
+
+    {"id": "gp-noname", "location": {"latitude": 25.0390, "longitude": 121.5650}, "types": ["restaurant"]}
+  ]
+}

@@ -13,6 +13,7 @@ os.environ["OLLAMA_URL"] = ""
 os.environ["MCP_CLIENT_URL"] = ""
 os.environ["AUTO_REFRESH"] = "false"
 os.environ["ACTIVE_CITIES"] = ""
+os.environ["GOOGLE_PLACES_API_KEY"] = ""  # .env 裡填了金鑰也不要連 Google；要測的測試自己設定
 
 
 @pytest.fixture(scope="session")

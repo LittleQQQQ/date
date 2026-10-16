@@ -5,14 +5,17 @@ REST API（app/api.py）和 MCP 工具（app/mcp_server.py）都呼叫這裡，�
 from __future__ import annotations
 
 import datetime as dt
+from collections.abc import Callable
 
 from sqlalchemy import func, select, true
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from . import planner
+from . import google_places, planner
+from .collectors.base import RestaurantRecord
+from .collectors.coverage import load_coverage
 from .config import settings
-from .geo import walk_minutes
+from .geo import DETOUR, WALK_M_PER_MIN, walk_minutes
 from .jev import (
     AUDIO,
     CUISINE,
@@ -26,7 +29,7 @@ from .jev import (
     JevService,
     diet_question,
 )
-from .jev.service import label_subject, restaurant_context, restaurant_subject, title_subject
+from .jev.service import label_subject, place_subject, restaurant_context, restaurant_subject, title_subject
 from .models import Area, Cinema, Movie, Restaurant, ScrapeRun, Showtime, Station, TransitLink
 from .planner import Place, PlanContext, RestaurantInfo, ShowtimeInfo
 from .regions import TAIWAN_CITIES
@@ -79,6 +82,30 @@ def hours_for(hours: dict, day: dt.date) -> tuple[int, int] | None:
     return to_min(span[0]), to_min(span[1])
 
 
+PlacesFetch = Callable[[google_places.PlacesClient], list[RestaurantRecord]]
+
+
+def load_restaurants(
+    session: Session, area_id: str, fetch: PlacesFetch
+) -> tuple[list[tuple[int | str, str, Restaurant | RestaurantRecord]], dict]:
+    """商圈的餐廳：[(編號, Jev 判斷的對象, 餐廳)]，以及 {"source": "google" 或 "osm", "note": 給使用者的提示}。
+
+    有 Google 金鑰就用 fetch 即時查 Google（不存進資料庫）；沒有金鑰、查詢失敗或超過每日上限時，
+    用資料庫裡的餐廳（OSM；示意資料模式下是示意資料）。
+    """
+    note = ""
+    if settings.use_google_places:
+        try:
+            with google_places.make_client() as client:
+                records = fetch(client)
+        except google_places.PlacesError as exc:
+            note = f"Google 地圖查詢失敗（{exc}），這次改用 OpenStreetMap 的餐廳資料。"
+        else:
+            return [(r.external_id, place_subject(r.external_id), r) for r in records], {"source": "google", "note": ""}
+    rows = session.scalars(select(Restaurant).where(Restaurant.area_id == area_id)).all()
+    return [(r.id, restaurant_subject(r), r) for r in rows], {"source": "osm", "note": note}
+
+
 def load_graph(session: Session) -> TransitGraph:
     nodes = [Node(s.id, s.name, s.transfer_min) for s in session.scalars(select(Station))]
     edges = [
@@ -117,6 +144,12 @@ def build_context(session: Session, req: PlanRequest, jev: JevService) -> tuple[
         if origin.city != area.city and (origin.city in ISLAND_CITIES or area.city in ISLAND_CITIES):
             raise ValueError("澎湖只能從島上出發，請改選島上的出發站（例如馬公總站）")
         raise ValueError(f"目前沒有從{origin.city}{planner.station_name(origin.name)}到{area.city}{area.name}的交通資料")
+
+    # 先查餐廳：Google 的每日次數計數會 commit，這時 session 裡還沒有待寫入的 Jev 判斷
+    def fetch(client: google_places.PlacesClient) -> list[RestaurantRecord]:
+        return google_places.area_restaurants(session, load_coverage(session, [area.city]).get(area.id), client)
+
+    restaurant_rows, restaurant_source = load_restaurants(session, area.id, fetch)
 
     rows = session.execute(
         select(Showtime, Cinema, Movie)
@@ -158,15 +191,15 @@ def build_context(session: Session, req: PlanRequest, jev: JevService) -> tuple[
 
     diet = diet_question(req.diet) if req.diet else None
     restaurants, closed = [], 0
-    for r in session.scalars(select(Restaurant).where(Restaurant.area_id == area.id)):
+    for rid, subject, r in restaurant_rows:
         span = hours_for(r.hours, req.date)
         if span is None:
             closed += 1
             continue
-        subject, context = restaurant_subject(r), restaurant_context(r)
+        context = restaurant_context(r)
         restaurants.append(
             RestaurantInfo(
-                place=_place(r),
+                place=Place(rid, r.name, r.lat, r.lng),
                 price=r.price_per_person,
                 open=span[0],
                 close=span[1],
@@ -184,6 +217,7 @@ def build_context(session: Session, req: PlanRequest, jev: JevService) -> tuple[
                     else None
                 ),
                 estimated=list(r.estimated or []),
+                url=r.source_url,
             )
         )
 
@@ -197,15 +231,18 @@ def build_context(session: Session, req: PlanRequest, jev: JevService) -> tuple[
         threshold=settings.jev_confidence_threshold,
         ask=lambda question, subject, context: jev.ask(question, subject, context).apply_override(ov),
     )
-    return ctx, {"showtimes_without_movie": without_movie, "restaurants_closed": closed}
+    return ctx, {
+        "showtimes_without_movie": without_movie, "restaurants_closed": closed, "restaurant_source": restaurant_source,
+    }
 
 
 def plan_date(session: Session, req: PlanRequest) -> dict:
     jev = JevService(session)
-    ctx, skipped = build_context(session, req, jev)
+    ctx, extra = build_context(session, req, jev)
     result = planner.plan(req, ctx)
     _save_judgments(session)
-    result["stats"].update(skipped)
+    result["restaurant_source"] = extra.pop("restaurant_source")
+    result["stats"].update(extra)
     result["request"] = req.model_dump(mode="json")
     result["jev"] = {"mode": jev.backend.name, "threshold": ctx.threshold, "new_calls": jev.calls}
     result["data"] = data_status(session)
@@ -255,17 +292,23 @@ def find_restaurants(
         raise ValueError(f"找不到影城 {cinema_id}")
     require_open_area(cinema.area_id)
     day = date or today_tw()
+    radius_m = round(max(1, max_walk_min) * WALK_M_PER_MIN / DETOUR)  # 步行 max_walk_min 分鐘的直線距離
+    rows, source = load_restaurants(
+        session,
+        cinema.area_id,
+        lambda client: google_places.nearby_restaurants(session, cinema, radius_m, cinema.area_id, client),
+    )
     jev = JevService(session)
     out = []
-    for r in session.scalars(select(Restaurant).where(Restaurant.area_id == cinema.area_id)):
+    for rid, subject, r in rows:
         walk = walk_minutes(cinema, r)
         if walk > max_walk_min:
             continue
         span = hours_for(r.hours, day)
-        subject, context = restaurant_subject(r), restaurant_context(r)
+        context = restaurant_context(r)
         fit = jev.ask(DATE_FIT, subject, context)
         item = {
-            "id": r.id,
+            "id": rid,
             "name": r.name,
             "walk_min": walk,
             "price_per_person": r.price_per_person,
@@ -277,6 +320,8 @@ def find_restaurants(
             "date_fit": fit.top,
             "date_fit_confidence": round(fit.confidence, 2),
             "estimated": list(r.estimated or []),
+            "url": r.source_url,
+            "source": source["source"],
         }
         if open_at:
             t = to_min(open_at)
@@ -417,5 +462,7 @@ def meta(session: Session) -> dict:
         },
         "jev": {"mode": settings.jev_mode, "threshold": settings.jev_confidence_threshold},
         "llm": {"model": settings.ollama_model},
+        # google：排程時即時查 Google（counts.restaurants 是查詢失敗時備用的 OSM 餐廳數）；osm：用資料庫裡的餐廳
+        "restaurants": {"source": "google" if settings.use_google_places else "osm"},
         "data": data_status(session),
     }

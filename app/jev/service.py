@@ -66,6 +66,11 @@ def restaurant_subject(r: Restaurant) -> str:
     return f"restaurant:{r.id}"
 
 
+def place_subject(place_id: str) -> str:
+    """Google 即時查到的餐廳沒有存進資料庫，改用 place_id（Google 條款允許長期保存的只有它）。"""
+    return f"restaurant:google:{place_id}"
+
+
 def restaurant_context(r: Restaurant) -> dict:
     return {"name": r.name, "description": r.description, "reviews": list(r.reviews or [])}
 

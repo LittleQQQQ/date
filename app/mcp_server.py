@@ -99,6 +99,7 @@ def find_restaurants(cinema_id: int, max_walk_min: int = 10, date: str = "", ope
     """查某家影城步行範圍內的餐廳，附上 Jev 對約會適合度、料理類型、用餐快慢的判斷。
 
     open_at（HH:MM）有填時，會標出那個時間還能不能點餐。
+    每家店的 source 是資料來源：google＝即時查 Google 地圖，osm＝資料庫裡的 OpenStreetMap 資料。
     """
     with SessionLocal() as session:
         try:
