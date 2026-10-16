@@ -114,12 +114,41 @@ def test_movies_and_synopsis():
     assert all(m.genre == "" for m in movies.values())
 
 
-def test_dates_limited_to_what_the_site_offers():
-    # 信義威秀後兩天也要抓得到（沒有場次的頁面就好），否則商圈內的影城全部失敗會直接報錯
-    later = {theater_url("t02a01", "a02", day, TODAY): empty_day(day) for day in (TODAY + dt.timedelta(days=i) for i in (2, 3))}
+def days_from_today(*offsets):
+    return [TODAY + dt.timedelta(days=i) for i in offsets]
+
+
+def published_day(day):
+    """有場次的時刻表頁：拿 10/13 的樣本換成 day 的日期。"""
+    return (SAMPLES / "theater_t02a01_20261013.html").read_text(encoding="utf-8").replace("2026/10/13", f"{day:%Y/%m/%d}")
+
+
+def test_extra_days_stop_at_the_first_missing_page():
+    # 前 4 天要全部抓得到（沒有場次的頁面就好）；第 5 天抓不到就停，第 6、7 天不抓，前 4 天照用
+    later = {theater_url("t02a01", "a02", day, TODAY): empty_day(day) for day in days_from_today(2, 3)}
     batch, fetcher = collect(days=14, **later)
-    assert batch.showtime_dates == (TODAY, TODAY + dt.timedelta(days=3))
-    assert not any("20261016" in url for url in fetcher.requested)
+    assert [c.external_id for c in batch.cinemas] == ["t02a01"]  # 另外兩家前 4 天有缺頁，保留上次的場次
+    assert batch.showtime_dates == (TODAY, TODAY + dt.timedelta(days=6))  # 最多 7 天
+    assert any("20261016" in url for url in fetcher.requested)
+    assert not any("20261017" in url for url in fetcher.requested)
+
+
+def test_published_extra_days_are_kept_until_an_empty_day():
+    pages_by_day = {2: empty_day, 3: empty_day, 4: published_day, 5: published_day, 6: empty_day}  # 第 7 天還沒公布
+    later = {theater_url("t02a01", "a02", day, TODAY): pages_by_day[(day - TODAY).days](day) for day in days_from_today(*pages_by_day)}
+    batch, fetcher = collect(days=14, **later)
+    dates = {s.date for s in batch.showtimes if s.cinema_external_id == "t02a01"}
+    assert dates == set(days_from_today(0, 1, 4, 5))
+    assert not any("20261019" in url for url in fetcher.requested)  # 第 8 天不抓
+
+
+def test_extra_day_with_the_wrong_date_stops_without_dropping_the_theater():
+    later = {theater_url("t02a01", "a02", day, TODAY): empty_day(day) for day in days_from_today(2, 3)}
+    later[theater_url("t02a01", "a02", TODAY + dt.timedelta(days=4), TODAY)] = published_day(TODAY)  # 拿到今天的頁面
+    batch, fetcher = collect(days=14, **later)
+    assert [c.external_id for c in batch.cinemas] == ["t02a01"]
+    assert {s.date for s in batch.showtimes} == {TODAY, TOMORROW}
+    assert not any("20261017" in url for url in fetcher.requested)
 
 
 def test_region_page_without_theaters_fails():
