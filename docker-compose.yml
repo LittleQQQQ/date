@@ -23,7 +23,8 @@ services:
     environment:
       DATABASE_URL: postgresql+psycopg://date_planner:${DB_PASSWORD}@db:5432/date_planner
       ACTIVE_CITIES: ${ACTIVE_CITIES-桃園市}
-      # 留空 = 不用 LLM（摘要用範本、Jev 沒把握時直接問使用者）；要用就填 http://ollama:11434 並啟動 llm profile
+      # 留空 = 不用 LLM（摘要用範本、Jev 沒把握時直接問使用者）
+      # 用這台電腦上裝好的 Ollama：http://host.docker.internal:11434；用下面的 ollama 容器：http://ollama:11434
       OLLAMA_URL: ${OLLAMA_URL:-}
       OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5:3b}
       JEV_MODE: ${JEV_MODE:-mock}
@@ -33,6 +34,8 @@ services:
       AUTO_REFRESH: ${AUTO_REFRESH:-true}
     volumes:
       - cache:/app/data/cache  # 爬蟲的網頁快取，重建容器也保留
+    extra_hosts:
+      - "host.docker.internal:host-gateway"  # Linux 主機也能用這個名字連到本機的 Ollama
     depends_on:
       db:
         condition: service_healthy
@@ -45,6 +48,27 @@ services:
       - ollama:/root/.ollama
     profiles: ["llm"]
     restart: unless-stopped
+
+  # 對外的固定網址（Cloudflare 具名通道）：docker compose --profile tunnel up -d
+  # 要先在 Cloudflare 建好通道，把 token 填進 .env 的 CLOUDFLARE_TUNNEL_TOKEN（見 README「換主機」）
+  tunnel:
+    image: cloudflare/cloudflared:2026.10.1
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:-}
+    depends_on:
+      - app
+    profiles: ["tunnel"]
+    restart: unless-stopped
+
+  # 臨時的公開網址（不用帳號，每次網址都不一樣）：docker compose --profile quick-tunnel up -d
+  # 網址在 docker compose logs quick-tunnel 裡，找 trycloudflare.com
+  quick-tunnel:
+    image: cloudflare/cloudflared:2026.10.1
+    command: tunnel --no-autoupdate --url http://app:8000
+    depends_on:
+      - app
+    profiles: ["quick-tunnel"]
 
 volumes:
   pgdata:

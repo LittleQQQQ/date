@@ -7,6 +7,8 @@
 - 影城、電影、場次來自**開眼電影網**，餐廳來自 **OpenStreetMap**，伺服器會自動更新。設定 Google Places 金鑰後，餐廳改成排程時即時查 **Google 地圖**（見「Google 地圖餐廳」）。
 - 出發站和商圈可以不同地點（例如從中壢車站出發到八德），自動安排捷運、台鐵、高鐵、公車轉乘，並檢查各段末班車；恢復全台後也能跨縣市出發。
 
+> **要把一台電腦當主機讓別人連線**：照「用 Docker 部署」與「換主機（兩台電腦輪流當主機）」兩節操作，clone 下來照著做就好。
+
 > 交通班次與車資是**估計值**；票價、沒標營業時間的餐廳營業時間與價位也是估計，畫面上會標示。Jev 使用**模擬版**。
 
 ## 架構
@@ -94,11 +96,11 @@ py -3 -m venv .venv
 
 `Dockerfile` 把網站（含 REST API 與 `/mcp`）打包成映像；`docker-compose.yml` 一起啟動網站與 PostgreSQL，LLM（Ollama）選用。需要 Docker Desktop（Windows、macOS）或 Docker Engine（Linux）。
 
-1. 在專案根目錄的 `.env` 設定資料庫密碼（compose 會自動讀這個檔，不會打包進映像）：
-   ```text
-   DB_PASSWORD=自己取一個密碼
+1. 把範本 `.env.docker.example` 複製成 `.env`（compose 會自動讀這個檔，不會進 git，也不會打包進映像），至少填好 `DB_PASSWORD`（自己取一個密碼）：
+   ```powershell
+   copy .env.docker.example .env
    ```
-   其他選用的值也放這裡：`APP_PORT`（對外的埠，預設 8000）、`ACTIVE_CITIES`（預設桃園市）、`GOOGLE_PLACES_API_KEY`、`OLLAMA_URL`、`JEV_MODE` 等，名稱和「設定（.env）」一節相同。
+   範本裡每一項都有說明：`APP_PORT`（對外的埠，預設 8000）、`OLLAMA_URL`（LLM）、`CLOUDFLARE_TUNNEL_TOKEN`（固定網址）、`GOOGLE_PLACES_API_KEY` 等；其他名稱和「設定（.env）」一節相同。
 2. 建置並啟動：
    ```bash
    docker compose up -d --build
@@ -110,14 +112,18 @@ py -3 -m venv .venv
    `http://localhost:8000/api/status` 的 `refresh.running` 變成 `null` 就抓完了。
 4. 打開 `http://localhost:8000`。
 
-**要用 LLM**：`.env` 加上 `OLLAMA_URL=http://ollama:11434`，啟動時多帶 `--profile llm`，第一次再下載模型：
-```bash
-docker compose --profile llm up -d --build
-```
-```bash
-docker compose exec ollama ollama pull qwen2.5:3b
-```
-沒有 GPU 的主機跑 LLM 很慢，部署時可以不開（`OLLAMA_URL` 留空）：網頁照常可用，摘要改用範本。
+**要用 LLM**（二選一）：
+
+- **用這台電腦上裝好的 Ollama（推薦）**：先在電腦上安裝 Ollama 並執行 `ollama pull qwen2.5:3b`，`.env` 填 `OLLAMA_URL=http://host.docker.internal:11434`（範本預設就是這個）。容器會連到電腦上的 Ollama，用得到電腦的顯示卡，也不用重下載模型。
+- **用 compose 裡的 Ollama 容器**：`.env` 填 `OLLAMA_URL=http://ollama:11434`，啟動時多帶 `--profile llm`，第一次再下載模型：
+  ```bash
+  docker compose --profile llm up -d --build
+  ```
+  ```bash
+  docker compose exec ollama ollama pull qwen2.5:3b
+  ```
+
+沒有 GPU 的主機跑 LLM 很慢，可以不開（`OLLAMA_URL` 留空）：網頁照常可用，摘要改用範本。
 
 **常用指令**
 
@@ -126,7 +132,7 @@ docker compose exec ollama ollama pull qwen2.5:3b
 | 更新程式後重建 | `git pull` 之後 `docker compose up -d --build` |
 | 停止（資料保留） | `docker compose down` |
 | 連資料一起刪掉 | `docker compose down -v` |
-| 備份資料庫 | `docker compose exec db pg_dump -U date_planner date_planner > backup.sql` |
+| 備份資料庫 | 見「換主機」最後一步（`pg_dump` 再 `docker compose cp` 出來） |
 | 資料表結構改版時重建 | `docker compose exec app python -m app.ingest --reset` |
 | 手動補抓 | `docker compose exec app python -m app.ingest --source atmovies`（或 `osm`） |
 
@@ -137,6 +143,110 @@ docker compose exec ollama ollama pull qwen2.5:3b
 - 本機開發用的 `dev.db`（SQLite）不會搬進容器；容器裡的 PostgreSQL 由背景更新重新抓資料。
 - 要讓外面連進來：放到雲端主機時，前面再加一個反向代理（例如 Caddy）處理 HTTPS 與網域；只是暫時展示的話，可以用 Cloudflare Tunnel 把本機的埠開成公開網址。網站目前沒有登入、呼叫頻率限制，MCP 端點也沒有存取權杖，長期公開前要先補上。
 - 開眼、OpenStreetMap 是否會擋雲端主機的連線，要在那台主機上實際跑一次確認。
+
+## 換主機（兩台電腦輪流當主機）
+
+兩台（或更多）電腦都可以當主機，**但同一時間只開一台**。每台各自有一份資料庫，啟動後會自己抓場次和餐廳，所以換主機時通常不用搬資料。以下指令在 Windows 的 PowerShell 或命令提示字元執行（macOS、Linux 用終端機；`copy` 改成 `cp`）。
+
+### 每台電腦第一次設定（只做一次）
+
+1. 安裝 [Git](https://git-scm.com/) 與 [Docker Desktop](https://www.docker.com/products/docker-desktop/)。Docker Desktop 的設定裡勾選「登入時自動啟動」（Start Docker Desktop when you sign in），之後網站會跟著 Docker 自動啟動。
+2. 要用 LLM 的話，安裝 [Ollama](https://ollama.com/) 並下載模型（不用 LLM 可跳過）：
+   ```powershell
+   ollama pull qwen2.5:3b
+   ```
+3. 下載程式、建立設定檔：
+   ```powershell
+   git clone https://github.com/LittleQQQQ/date.git
+   ```
+   ```powershell
+   cd date
+   ```
+   ```powershell
+   copy .env.docker.example .env
+   ```
+   用記事本打開 `.env`：
+   - `DB_PASSWORD`：必填，每台自己取一個密碼。
+   - `OLLAMA_URL`：要用 LLM 就保留 `http://host.docker.internal:11434`；不用就清空。
+   - `CLOUDFLARE_TUNNEL_TOKEN`：要用固定網址才填（見下一段），**兩台填同一個**。
+   - `GOOGLE_PLACES_API_KEY` 等金鑰：有才填。`.env` 不會進 git，金鑰不要 commit。
+4. 電源設定改成插電時不睡眠，否則別人會連不上。
+
+### 讓別人連得到（三選一）
+
+| 方式 | 網址 | 需要什麼 | 啟動時加 |
+|---|---|---|---|
+| **固定網址（推薦）** | `https://date.你的網域`，換主機也不變 | Cloudflare 帳號，以及一個交給 Cloudflare 管理的網域 | `--profile tunnel` |
+| **臨時網址** | `https://隨機字.trycloudflare.com`，每次啟動都不一樣 | 不用帳號 | `--profile quick-tunnel` |
+| **同一個網路** | `http://這台電腦的IP:8000`（IP 用 `ipconfig` 查） | Windows 防火牆允許這個埠的連入 | 不用加 |
+
+**設定固定網址**（只做一次，兩台共用）：
+
+1. 登入 Cloudflare 的 Zero Trust 控制台 → Networks → Tunnels → 建立通道（Create a tunnel，類型選 Cloudflared），取個名字。
+2. 安裝步驟的頁面會顯示一行含 `--token` 的指令：把 `--token` 後面那一長串複製下來，填進**兩台**電腦 `.env` 的 `CLOUDFLARE_TUNNEL_TOKEN`。
+3. 替這個通道新增公開主機名稱（Public Hostname）：子網域例如 `date`、網域選你的網域，服務類型 `HTTP`、網址填 `app:8000`。
+4. 之後網址就是 `https://date.你的網域`。Cloudflare 介面的名稱偶爾會改，找「Tunnels」和「Public Hostname」就對了。
+
+用臨時網址時，網址在記錄裡（找 `trycloudflare.com`）：
+```powershell
+docker compose logs quick-tunnel
+```
+
+### 每次換主機
+
+下面以固定網址（`--profile tunnel`）為例；用臨時網址就換成 `--profile quick-tunnel`，只給同一個網路用就拿掉 `--profile …`。
+
+1. **舊主機**：停掉網站和通道（資料保留在這台）：
+   ```powershell
+   docker compose --profile tunnel down
+   ```
+2. **新主機**：拿最新的程式，再建置、啟動：
+   ```powershell
+   git pull
+   ```
+   ```powershell
+   docker compose --profile tunnel up -d --build
+   ```
+3. 等資料抓齊：第一次在這台啟動大約 6～7 分鐘，之後只補抓新的場次。打開 `http://localhost:8000/api/status`，`refresh.running` 變成 `null` 就好了；也可以看記錄：
+   ```powershell
+   docker compose logs -f app
+   ```
+4. 用對外網址打開，排一趟行程確認。
+
+### 要把資料一起搬過去（選用）
+
+場次和餐廳會自己重抓，通常不用搬。想讓新主機一啟動就有完全一樣的資料（例如抓資料的網站剛好連不上），可以這樣搬：
+
+1. **舊主機**（網站還在跑的時候）匯出資料庫，存成專案資料夾裡的 `date.dump`：
+   ```powershell
+   docker compose exec db pg_dump -U date_planner -d date_planner -Fc -f /tmp/date.dump
+   ```
+   ```powershell
+   docker compose cp db:/tmp/date.dump date.dump
+   ```
+2. 把 `date.dump` 複製到新主機的專案資料夾（隨身碟、雲端硬碟都可以；它不會進 git）。
+3. **新主機**先只啟動資料庫、還原，再啟動全部：
+   ```powershell
+   docker compose up -d db
+   ```
+   ```powershell
+   docker compose cp date.dump db:/tmp/date.dump
+   ```
+   ```powershell
+   docker compose exec db pg_restore -U date_planner -d date_planner --clean --if-exists /tmp/date.dump
+   ```
+   ```powershell
+   docker compose --profile tunnel up -d --build
+   ```
+
+這幾行請在 PowerShell 或命令提示字元執行：Git Bash 會把 `/tmp/…` 改寫成 Windows 路徑而失敗（真的要用 Git Bash，先執行 `export MSYS_NO_PATHCONV=1`）。也不要改用 `pg_dump … > 檔案` 的寫法：Windows PowerShell 會改掉輸出的編碼，備份檔會壞掉。
+
+### 注意
+
+- **同時只開一台**：兩台都開著時，固定網址會隨機連到其中一台，看到的資料可能不一樣。
+- **換主機前先 `git pull`**：兩台才會跑同一版程式。
+- **金鑰與 `.env` 每台各自一份**：不在 git 裡，新電腦要自己建（照上面第 3 步）。
+- **網站目前沒有登入與呼叫頻率限制、MCP 端點沒有存取權杖**：公開網址只給信任的人；有設 Google Places 金鑰時，程式本身每天最多呼叫 `GOOGLE_PLACES_DAILY_LIMIT` 次。
 
 ## 設定（.env）
 
@@ -265,6 +375,7 @@ db/init.sql        PostgreSQL 建立帳號與資料庫
 tests/             自動測試
 Dockerfile         網站的映像（見「用 Docker 部署」）
 docker-compose.yml 網站＋PostgreSQL（LLM 選用）
+.env.docker.example 當主機時的 .env 範本（見「換主機」）
 ```
 
 ## 目前的限制
