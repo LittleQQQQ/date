@@ -26,6 +26,10 @@ class Settings(BaseSettings):
     jev_timeout: float = 10.0
     # Jev 最高機率低於這個值，就請使用者確認
     jev_confidence_threshold: float = 0.6
+    # Jev 沒把握時先請本機 LLM（Ollama）幫忙判斷，LLM 也沒結果才請使用者確認；false = 一律請使用者確認
+    jev_llm_assist: bool = True
+    # 排程當下才問的判斷（片名比對、飲食限制）每次最多問 LLM 幾題；選片、選餐廳、選車不受這個限制
+    jev_llm_assist_max_calls: int = Field(10, ge=0)
 
     ollama_url: str = "http://localhost:11434"
     ollama_model: str = "qwen2.5:3b"

@@ -114,7 +114,7 @@ class JevService:
             select(JevJudgment).where(JevJudgment.question == question.key, JevJudgment.subject_key == subject)
         )
         if row and row.input_hash == digest and row.source == self.backend.name:
-            return JevAnswer(key, question.text, list(row.options), list(row.probs), row.source)
+            return JevAnswer(key, question.text, list(row.options), list(row.probs), row.source, text=text)
 
         probs = _normalize(self.backend.predict(question, context, text))
         self.calls += 1
@@ -126,4 +126,4 @@ class JevService:
         row.probs = probs
         row.source = self.backend.name
         row.updated_at = now_tw()
-        return JevAnswer(key, question.text, list(question.options), probs, self.backend.name)
+        return JevAnswer(key, question.text, list(question.options), probs, self.backend.name, text=text)

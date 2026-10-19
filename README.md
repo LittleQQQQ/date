@@ -255,7 +255,9 @@ docker compose logs quick-tunnel
 | `DATABASE_URL` | 空（用 SQLite） | 例：`postgresql+psycopg://date_planner:密碼@localhost:5432/date_planner` |
 | `JEV_MODE` | `mock` | `mock` 規則模擬；`api` 呼叫正式 Jev API |
 | `JEV_API_URL`、`JEV_API_KEY` | 空 | `JEV_MODE=api` 時使用 |
-| `JEV_CONFIDENCE_THRESHOLD` | `0.6` | Jev 最高機率低於此值就請使用者確認 |
+| `JEV_CONFIDENCE_THRESHOLD` | `0.6` | Jev 最高機率低於此值就算沒把握 |
+| `JEV_LLM_ASSIST` | `true` | Jev 沒把握時先請本機 LLM 幫忙判斷，LLM 也沒結果才請使用者確認；`false` = 一律請使用者確認 |
+| `JEV_LLM_ASSIST_MAX_CALLS` | `10` | 排程當下才問的判斷（片名比對、飲食限制）每次最多問 LLM 幾題 |
 | `OLLAMA_URL` | `http://localhost:11434` | 留空 = 不用 LLM |
 | `OLLAMA_MODEL` | `qwen2.5:3b` | |
 | `MCP_CLIENT_URL` | 空 | 網頁排程呼叫 MCP 的方式：空 = 同程序內連線；填 `http://127.0.0.1:8000/mcp` = 走 HTTP |
@@ -273,6 +275,16 @@ docker compose logs quick-tunnel
 3. 組合信心 ＝ 選片機率 × 選餐廳機率，取前三名當方案；同一組片和餐廳有好幾個場次時，程式挑緩衝最充裕的。
 4. 前三名方案決定後，程式列出每個方案時間接得上、預算付得起的走法（拿掉高鐵、台鐵、公車（含客運）的各種組合各算一次；又慢又不便宜的刪掉；每個方向最多 4 種），問 Jev「這次約會的去程／回程，最適合哪一種走法？」；只有一種走法時不問。選車的機率另外顯示，不乘進組合信心。
 5. Jev 對選擇沒把握時，方案照樣排出來，另外列出 Jev 的前幾名讓使用者改選；改選後就用使用者選的重新排。
+
+**Jev 沒把握時請 LLM 幫忙（`JEV_LLM_ASSIST`，預設開啟）**：Jev 的信心低於門檻時，先把同一題、同樣的選項、Jev 讀過的同一段文字交給本機 LLM 選一個（`app/jev/assist.py`）。LLM 選的答案排第一（LLM 占八成、Jev 原本的機率占兩成），不再請使用者確認，卡片上標「Jev 沒把握，LLM 判斷」。資料不夠時 LLM 可以回答「無法判斷」；LLM 說無法判斷、沒開、逾時或答非所問時，照上面的方式請使用者確認。使用者確認過的答案一律不動。為了不讓排程變慢：
+
+- 固定的題目（約會適合度、料理類型、影廳、語言、片型）在匯入資料時先問 LLM，餐廳只問開放範圍內的；排程時只讀存好的答案。
+- 排程當下才有的題目：片名比對、飲食限制每次最多問 `JEV_LLM_ASSIST_MAX_CALLS` 題；選片、選餐廳、選車不限題數（每次排程最多 10 題）。一次排程等 LLM 的時間合計最多 30 秒，超過的照舊請使用者確認。
+- 答案（包括「無法判斷」）存在 `llm_judgments` 表，同一題、同一段文字、同一個模型不會再問。
+- Ollama 連不上或逾時後，60 秒內不再嘗試；呼叫 LLM 時共用一個連線，熱機後一題不到 1 秒。
+- 用 Google 地圖查的餐廳不存進資料庫，匯入時沒辦法先問，所以約會適合度、料理類型沒把握時照舊請使用者確認。
+
+設成 `JEV_LLM_ASSIST=false` 就回到「Jev 沒把握就問使用者」。
 6. 卡片上的「最省」「最穩」是程式算出的客觀標籤，不是 Jev 的判斷。
 
 選片、選餐廳的選項每次都不一樣（例如這次 5 部片、下次 3 部），context 會列出每個選項的說明。
