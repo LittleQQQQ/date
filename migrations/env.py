@@ -31,7 +31,7 @@ def include_object(obj, name, type_, reflected, compare_to):
 
 
 def _url() -> str:
-    return config.get_main_option("sqlalchemy.url") or settings.db_url
+    return config.get_main_option("sqlalchemy.url") or settings.database_url
 
 
 def run_migrations_offline() -> None:

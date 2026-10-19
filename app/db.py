@@ -1,26 +1,36 @@
+"""資料庫連線（規格書 4.1）：API 用非同步，worker 和匯入用同步，兩邊共用同一個 psycopg 3 網址。
+
+資料表結構由 Alembic 管理（migrations/），程式不會自己建表。
+"""
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import AsyncIterator, Iterator
 
-from sqlalchemy import create_engine, inspect
+from sqlalchemy import MetaData, create_engine
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
 from .config import settings
 
+# 約束和索引的命名規則：Alembic 產生的 migration 才有固定的名字，之後改得到、刪得到
+NAMING_CONVENTION = {
+    "ix": "ix_%(table_name)s_%(column_0_N_name)s",
+    "uq": "uq_%(table_name)s_%(column_0_N_name)s",
+    "ck": "ck_%(table_name)s_%(constraint_name)s",
+    "fk": "fk_%(table_name)s_%(column_0_name)s_%(referred_table_name)s",
+    "pk": "pk_%(table_name)s",
+}
+
 
 class Base(DeclarativeBase):
-    pass
+    metadata = MetaData(naming_convention=NAMING_CONVENTION)
 
 
-def _make_engine(url: str):
-    if url.startswith("sqlite"):
-        # 背景更新和網頁請求可能同時寫入，等鎖最多 30 秒
-        return create_engine(url, connect_args={"check_same_thread": False, "timeout": 30})
-    return create_engine(url, pool_pre_ping=True)
-
-
-engine = _make_engine(settings.db_url)
+engine = create_engine(settings.database_url, pool_pre_ping=True)
 SessionLocal = sessionmaker(bind=engine, expire_on_commit=False)
+
+async_engine = create_async_engine(settings.database_url, pool_pre_ping=True)
+AsyncSessionLocal = async_sessionmaker(bind=async_engine, expire_on_commit=False)
 
 
 def get_session() -> Iterator[Session]:
@@ -28,22 +38,6 @@ def get_session() -> Iterator[Session]:
         yield session
 
 
-def schema_problems() -> list[str]:
-    """資料庫裡的資料表欄位和程式不一致的地方（create_all 只會建新表，不會幫舊表加欄位）。"""
-    inspector = inspect(engine)
-    problems = []
-    for table in Base.metadata.sorted_tables:
-        if not inspector.has_table(table.name):
-            continue
-        existing = {col["name"] for col in inspector.get_columns(table.name)}
-        missing = [col.name for col in table.columns if col.name not in existing]
-        if missing:
-            problems.append(f"{table.name} 缺少欄位：{', '.join(missing)}")
-    return problems
-
-
-def schema_message(problems: list[str]) -> str:
-    return (
-        "資料庫的資料表結構是舊版的：\n  " + "\n  ".join(problems) + "\n"
-        "請執行 python -m app.ingest --reset 重建（會清空資料庫裡的資料，再重新匯入商圈與交通；影城、場次、餐廳會在伺服器啟動時重新抓）。"
-    )
+async def get_async_session() -> AsyncIterator[AsyncSession]:
+    async with AsyncSessionLocal() as session:
+        yield session
