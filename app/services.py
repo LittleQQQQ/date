@@ -5,6 +5,7 @@ REST API（app/api.py）和 MCP 工具（app/mcp_server.py）都呼叫這裡，�
 from __future__ import annotations
 
 import datetime as dt
+import time
 from collections.abc import Callable
 
 from sqlalchemy import func, select, true
@@ -29,7 +30,7 @@ from .jev import (
     JevService,
     diet_question,
 )
-from .jev.assist import LlmAssist
+from .jev.assist import PLAN_BUDGET, LlmAssist
 from .jev.service import label_subject, place_subject, restaurant_context, restaurant_subject, title_subject
 from .models import Area, Cinema, Movie, Restaurant, ScrapeRun, Showtime, Station, TransitLink
 from .planner import Place, PlanContext, RestaurantInfo, ShowtimeInfo
@@ -164,10 +165,12 @@ def build_context(session: Session, req: PlanRequest, jev: JevService) -> tuple[
     # Jev 沒把握時請 LLM 幫忙（JEV_LLM_ASSIST）：
     # - 固定的題目（影廳、語言、約會適合度、料理）在匯入時先問過，這裡只讀存好的答案，不多花時間
     # - 跟這次條件有關的題目（片名比對、飲食限制）最多問 JEV_LLM_ASSIST_MAX_CALLS 題
-    # - 選片、選餐廳、選車（planner 經由 ctx.ask 問）不限，每次排程最多 10 題
+    # - 選片、選餐廳、選車（planner 經由 ctx.ask 問）不限題數，每次排程最多 10 題
+    # - 一次排程等 LLM 的時間合計最多 PLAN_BUDGET 秒，超過的照舊請使用者確認
+    deadline = time.monotonic() + PLAN_BUDGET
     stored = LlmAssist(session, max_calls=0)
-    request_specific = LlmAssist(session, max_calls=settings.jev_llm_assist_max_calls)
-    choices = LlmAssist(session)
+    request_specific = LlmAssist(session, max_calls=settings.jev_llm_assist_max_calls, deadline=deadline)
+    choices = LlmAssist(session, deadline=deadline)
     showtimes, without_movie = [], 0
     for st, cinema, movie in rows:
         if movie is None:  # 對不到電影就不知道片長，先跳過

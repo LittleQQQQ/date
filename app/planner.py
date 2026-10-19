@@ -511,7 +511,7 @@ def _keep_showtime(req: PlanRequest, s: ShowtimeInfo, thr: float, asks: dict, fi
 
 def _keep_restaurant(req: PlanRequest, r: RestaurantInfo, thr: float, asks: dict, filtered: Counter) -> bool:
     if r.date_fit.confident(thr) and r.date_fit.top == DATE_FIT.options[-1]:
-        filtered["Jev 判斷不適合約會"] += 1
+        filtered["LLM 判斷不適合約會" if r.date_fit.source == "llm" else "Jev 判斷不適合約會"] += 1
         return False
     if req.cuisines:
         c = r.cuisine

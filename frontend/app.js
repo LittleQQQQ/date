@@ -302,7 +302,7 @@ function choiceRow(label, c, only = "只有這個選項排得進去") {
   const pct = Math.round(c.prob * 100);
   const who = c.source === "user" ? "（你指定或確認的）"
     : c.source === "program" ? `（${only}）`
-    : c.source === "llm" ? "（Jev 沒把握，LLM 選的）"
+    : c.source === "llm" ? (c.rank === 1 ? "（Jev 沒把握，LLM 選的）" : "（LLM 沒選這個，照 Jev 的順序）")
     : `（Jev 第 ${c.rank} 名）`;
   return `
     <li>

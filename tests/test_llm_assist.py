@@ -1,6 +1,9 @@
 """Jev 沒把握時請本機 LLM 幫忙判斷（JEV_LLM_ASSIST）。測試不連 LLM：用假的 judge 代替。"""
+import time
+
 import httpx
 import pytest
+from sqlalchemy import delete
 
 from app import llm, services
 from app.config import settings
@@ -17,9 +20,10 @@ SURE = JevAnswer("date_fit:restaurant:2", "這家餐廳適合兩人約會嗎？"
 
 @pytest.fixture
 def llm_on(monkeypatch):
-    """打開 LLM 協助，並用假的 judge 記下問了什麼；judge.answer 決定回答。"""
+    """打開 LLM 協助，並用假的 judge 記下問了什麼；judge.answer 決定回答。測完清掉存好的 LLM 答案。"""
     monkeypatch.setattr(settings, "ollama_url", "http://ollama.test")
     monkeypatch.setattr(settings, "jev_llm_assist", True)
+    monkeypatch.setattr(assist_module, "_down_until", 0.0)
     asked = []
 
     def judge(question, options, text):
@@ -29,7 +33,16 @@ def llm_on(monkeypatch):
     judge.answer = lambda question, options: options[-1]
     judge.asked = asked
     monkeypatch.setattr(assist_module, "judge", judge)
-    return judge
+    yield judge
+    from sqlalchemy import inspect
+
+    from app.db import SessionLocal, engine
+    from app.models import LlmJudgment
+
+    if inspect(engine).has_table(LlmJudgment.__tablename__):
+        with SessionLocal() as s:  # 共用的測試資料庫不要留下假的 LLM 答案
+            s.execute(delete(LlmJudgment))
+            s.commit()
 
 
 # ---------- JevAnswer ----------
@@ -94,6 +107,48 @@ def test_user_answer_is_never_overridden(mem_session, llm_on):
     assert llm_on.asked == []
 
 
+def test_llm_saying_it_cannot_tell_is_remembered(mem_session, llm_on):
+    llm_on.answer = lambda question, options: None  # 無法判斷，或答非所問
+    assert LlmAssist(mem_session).check(UNSURE) is UNSURE
+    mem_session.commit()
+    assert LlmAssist(mem_session).check(UNSURE) is UNSURE
+    assert len(llm_on.asked) == 1  # 存起來了，不會一直重問
+
+
+def test_same_question_is_asked_once_per_plan(mem_session, llm_on, monkeypatch):
+    def fail(question, options, text):
+        llm_on.asked.append(question)
+        raise assist_module.LLMUnavailable("timeout")
+
+    monkeypatch.setattr(assist_module, "judge", fail)
+    helper = LlmAssist(mem_session)
+    helper.check(UNSURE)
+    other = JevAnswer("date_fit:restaurant:9", UNSURE.question, UNSURE.options, UNSURE.probs, text="名稱：別家")
+    assert helper.check(other) is other
+    assert len(llm_on.asked) == 1  # 連不上之後先停一陣子，不是每題都等到逾時
+
+
+def test_time_budget(mem_session, llm_on):
+    helper = LlmAssist(mem_session, deadline=time.monotonic() - 1)
+    assert helper.check(UNSURE) is UNSURE
+    assert llm_on.asked == []
+
+
+def test_database_is_not_locked_while_waiting_for_llm(mem_session, llm_on):
+    from app.models import JevJudgment
+
+    mem_session.add(JevJudgment(question="q", subject_key="s", input_hash="h", options=[], probs=[], source="mock"))
+    pending = []
+
+    def answer(question, options):
+        pending.append(bool(mem_session.new or mem_session.dirty))
+        return options[0]
+
+    llm_on.answer = answer
+    LlmAssist(mem_session).check(UNSURE)
+    assert pending == [False]
+
+
 # ---------- llm.judge ----------
 
 
@@ -108,32 +163,44 @@ class _Resp:
         return {"message": {"content": self.content}}
 
 
+class _Client:
+    def __init__(self, post):
+        self.post = post
+
+
 def test_judge_returns_one_of_the_options(monkeypatch):
     monkeypatch.setattr(settings, "ollama_url", "http://ollama.test")
     sent = {}
 
-    def post(url, json, timeout):
+    def post(url, json):
         sent.update(json)
         return _Resp('{"choice": "普通"}')
 
-    monkeypatch.setattr(llm.httpx, "post", post)
+    monkeypatch.setattr(llm, "_http", lambda: _Client(post))
     assert llm.judge("這家餐廳適合兩人約會嗎？", ["適合約會", "普通", "不適合"], "名稱：一樂拉麵") == "普通"
-    assert sent["format"]["properties"]["choice"]["enum"] == ["適合約會", "普通", "不適合"]
+    assert sent["format"]["properties"]["choice"]["enum"] == ["適合約會", "普通", "不適合", "無法判斷"]
     assert "名稱：一樂拉麵" in sent["messages"][-1]["content"]
 
 
-def test_judge_gives_up_quietly(monkeypatch):
+def test_judge_without_an_answer(monkeypatch):
     monkeypatch.setattr(settings, "ollama_url", "http://ollama.test")
-    monkeypatch.setattr(llm.httpx, "post", lambda url, json, timeout: _Resp('{"choice": "超適合"}'))
-    assert llm.judge("q", ["是", "不是"], "t") is None
+    for content in ('{"choice": "無法判斷"}', '{"choice": "超適合"}', "not json"):
+        monkeypatch.setattr(llm, "_http", lambda content=content: _Client(lambda url, json: _Resp(content)))
+        assert llm.judge("q", ["是", "不是"], "t") is None
 
-    def boom(url, json, timeout):
+
+def test_judge_reports_an_unreachable_llm(monkeypatch):
+    monkeypatch.setattr(settings, "ollama_url", "http://ollama.test")
+
+    def boom(url, json):
         raise httpx.ConnectError("down")
 
-    monkeypatch.setattr(llm.httpx, "post", boom)
-    assert llm.judge("q", ["是", "不是"], "t") is None
+    monkeypatch.setattr(llm, "_http", lambda: _Client(boom))
+    with pytest.raises(llm.LLMUnavailable):
+        llm.judge("q", ["是", "不是"], "t")
     monkeypatch.setattr(settings, "ollama_url", "")
-    assert llm.judge("q", ["是", "不是"], "t") is None
+    with pytest.raises(llm.LLMUnavailable):
+        llm.judge("q", ["是", "不是"], "t")
 
 
 # ---------- 排程 ----------
@@ -161,6 +228,13 @@ def test_llm_picks_the_movie_when_jev_is_unsure(session, saturday, llm_on):
     assert best["jev_choice"]["movie"]["source"] == "llm"
     assert not any(c["key"].startswith("movie_choice:") for c in res["confirmations"])
     assert res["jev"]["llm_calls"] >= 1
+
+
+def test_switched_off_plans_like_before(session, saturday, llm_on, monkeypatch):
+    monkeypatch.setattr(settings, "jev_llm_assist", False)
+    res = _plan(session, saturday)
+    assert any(c["key"].startswith("movie_choice:") for c in res["confirmations"])  # 照舊請使用者選
+    assert llm_on.asked == [] and res["jev"]["llm_calls"] == 0
 
 
 def test_llm_answers_request_specific_filters(session, saturday, llm_on):

@@ -62,36 +62,53 @@ async def status() -> dict:
 
 # ---------- Jev 沒把握時幫忙判斷 ----------
 
-JUDGE_TIMEOUT = 20.0  # 秒；排程當下呼叫，等太久不如請使用者確認
+# 連線 1 秒內連不上就放棄（Ollama 沒開時不要卡住排程）；連上後最多等 20 秒
+JUDGE_TIMEOUT = httpx.Timeout(20.0, connect=1.0)
+JUDGE_PROMPT_VERSION = 2  # 改了下面的說明就加一，存好的 LLM 答案會重問
+ABSTAIN = "無法判斷"  # 資料不夠時讓 LLM 說不知道，改請使用者確認，不要硬選
 _JUDGE_SYSTEM = (
     "你幫忙回答封閉式的判斷題。只根據使用者給的資料判斷，不要猜資料裡沒有的事；"
-    "從選項中選一個最可能的答案，用 JSON 回答 {\"choice\": 選項}。"
+    f"資料不足以判斷時，回答「{ABSTAIN}」。用 JSON 回答 {{\"choice\": 選項}}。"
 )
+_client: httpx.Client | None = None
+
+
+def _http() -> httpx.Client:
+    """共用一個連線（keep-alive）：每題重新連線在 Windows 上要多花兩秒。"""
+    global _client
+    if _client is None:
+        _client = httpx.Client(timeout=JUDGE_TIMEOUT)
+    return _client
 
 
 def judge(question: str, options: list[str], text: str) -> str | None:
-    """請 LLM 回答一題封閉式問題（和 Jev 讀同一段文字、選同樣的選項）。回傳選項之一；沒開、失敗、答非所問都回 None。
+    """請 LLM 回答一題封閉式問題（和 Jev 讀同一段文字、選同樣的選項，另外可以回答「無法判斷」）。
 
-    排程是同步程式（在 MCP 工具裡執行），所以這裡用同步的 HTTP 呼叫。
+    回傳選項之一；LLM 說無法判斷或答非所問回 None；Ollama 沒設定、連不上、逾時丟 LLMUnavailable。
+    排程是同步程式（在 MCP 工具的執行緒裡），所以這裡用同步的 HTTP 呼叫。
     """
     if not settings.ollama_url:
-        return None
+        raise LLMUnavailable("沒有設定 OLLAMA_URL")
+    choices = [*options, ABSTAIN]
     payload = {
         "model": settings.ollama_model,
         "stream": False,
-        "options": {"temperature": 0},
+        "options": {"temperature": 0, "num_ctx": 4096},
         "keep_alive": "10m",
-        "format": {"type": "object", "properties": {"choice": {"type": "string", "enum": list(options)}}, "required": ["choice"]},
+        "format": {"type": "object", "properties": {"choice": {"type": "string", "enum": choices}}, "required": ["choice"]},
         "messages": [
             {"role": "system", "content": _JUDGE_SYSTEM},
-            {"role": "user", "content": f"問題：{question}\n選項：{'、'.join(options)}\n資料：\n{text}"},
+            {"role": "user", "content": f"問題：{question}\n選項：{'、'.join(choices)}\n資料：\n{text}"},
         ],
     }
     try:
-        resp = httpx.post(f"{settings.ollama_url.rstrip('/')}/api/chat", json=payload, timeout=JUDGE_TIMEOUT)
+        resp = _http().post(f"{settings.ollama_url.rstrip('/')}/api/chat", json=payload)
         resp.raise_for_status()
+    except Exception as exc:  # 連不上、逾時、網址寫錯……都當作 LLM 現在不能用
+        raise LLMUnavailable(f"Ollama 沒有回應：{type(exc).__name__}") from exc
+    try:
         choice = json.loads(resp.json()["message"]["content"])["choice"]
-    except (httpx.HTTPError, ValueError, KeyError, TypeError):
+    except (ValueError, KeyError, TypeError):
         return None
     return choice if choice in options else None
 
