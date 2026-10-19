@@ -20,5 +20,13 @@ class Settings(BaseSettings):
     # 只用 PostgreSQL ＋ PostGIS（規格書 4.1）。驅動程式 psycopg 3，同一個網址給同步與非同步共用
     database_url: str = DEV_DATABASE_URL
 
+    # 交通部 TDX（規格書 v0.2 3.2）：每週更新台鐵、公車的班表與票價；留空就用路網骨架的估計值
+    tdx_client_id: str = ""
+    tdx_client_secret: str = ""
+
+    @property
+    def use_tdx(self) -> bool:
+        return bool(self.tdx_client_id.strip() and self.tdx_client_secret.strip())
+
 
 settings = Settings()

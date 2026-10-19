@@ -16,6 +16,9 @@ TEST_DATABASE_URL = os.environ.get(
 )
 # 必須在 import app 之前設定：app.db 一載入就會用這個網址建立連線
 os.environ["DATABASE_URL"] = TEST_DATABASE_URL
+# .env 裡填了外部服務的金鑰也不要用：測試不連網，也不耗用額度。要測的測試自己設定
+os.environ["TDX_CLIENT_ID"] = ""
+os.environ["TDX_CLIENT_SECRET"] = ""
 
 
 @pytest.fixture(scope="session")
