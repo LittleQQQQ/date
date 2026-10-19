@@ -1,0 +1,52 @@
+# 約會一條龍：網站＋PostgreSQL（LLM 選用）。用法見 README「用 Docker 部署」。
+# 密碼與金鑰放在同一層的 .env（例如 DB_PASSWORD=…），compose 會自動讀進來，不會打包進映像。
+services:
+  db:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: date_planner
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?請在 .env 設定 DB_PASSWORD}
+      POSTGRES_DB: date_planner
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U date_planner -d date_planner"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    restart: unless-stopped
+
+  app:
+    build: .
+    ports:
+      - "${APP_PORT:-8000}:8000"
+    environment:
+      DATABASE_URL: postgresql+psycopg://date_planner:${DB_PASSWORD}@db:5432/date_planner
+      ACTIVE_CITIES: ${ACTIVE_CITIES-桃園市}
+      # 留空 = 不用 LLM（摘要用範本、Jev 沒把握時直接問使用者）；要用就填 http://ollama:11434 並啟動 llm profile
+      OLLAMA_URL: ${OLLAMA_URL:-}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5:3b}
+      JEV_MODE: ${JEV_MODE:-mock}
+      JEV_API_URL: ${JEV_API_URL:-}
+      JEV_API_KEY: ${JEV_API_KEY:-}
+      GOOGLE_PLACES_API_KEY: ${GOOGLE_PLACES_API_KEY:-}
+      AUTO_REFRESH: ${AUTO_REFRESH:-true}
+    volumes:
+      - cache:/app/data/cache  # 爬蟲的網頁快取，重建容器也保留
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # 選用：docker compose --profile llm up -d，第一次要下載模型（見 README）
+  ollama:
+    image: ollama/ollama
+    volumes:
+      - ollama:/root/.ollama
+    profiles: ["llm"]
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  cache:
+  ollama:
