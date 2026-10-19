@@ -14,6 +14,7 @@ score 題回 {"score": 0.67, "confidence": …, "probabilities": {"0": …, "1":
 from __future__ import annotations
 
 import math
+from collections.abc import Callable
 from dataclasses import dataclass, field
 
 import httpx
@@ -53,13 +54,14 @@ class TypeSafeJev:
         self.redis = redis_client or get_redis()
         self.limiter = SlidingWindow("rl:jev", settings.jev_rate_limit_per_minute, 60, self.redis)
         self.budget = MonthlyQuota("jev_cost_micro_usd", settings.jev_monthly_budget_micro_usd, self.redis)
+        self.on_wait: Callable[[float], None] | None = None  # 碰到每分鐘上限、排隊等的時候通知（規劃時推送 waiting_quota）
 
     def ask(self, state: str, questions: list[Question]) -> dict[str, Answer]:
         if not self.api_key.strip():
             raise JevUnavailable("沒有設定 TYPESAFE_API_KEY")
         if not self.budget.available():
             raise JevUnavailable("這個月的 Jev 費用上限用完了")
-        self.limiter.wait()
+        self.limiter.wait(on_wait=self.on_wait)
         body = {"model": settings.jev_model, "state": state, "questions": {q.id: q.to_api() for q in questions}}
         try:
             resp = self.http.post(API_URL, json=body, headers={"Authorization": f"Bearer {self.api_key}"})

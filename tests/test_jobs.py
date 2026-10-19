@@ -4,11 +4,11 @@ import datetime as dt
 import pytest
 from rq import Queue
 from rq.cron import CronScheduler
-from sqlalchemy import func, select, text
+from sqlalchemy import func, select
 
 from app.collectors.base import Batch, Collector, RestaurantRecord
 from app.config import settings
-from app.db import SessionLocal, engine
+from app.db import SessionLocal
 from app.jobs import cron_config, refresh_job
 from app.jobs.cron_config import tw_cron
 from app.jobs.refresh_job import SKIPPED, catch_up, due_jobs, refresh_daily, refresh_transit
@@ -18,17 +18,6 @@ from app.redis_utils.lock import RedisLock
 from app.timeutil import TW
 
 pytestmark = pytest.mark.usefixtures("redis_client")
-
-
-@pytest.fixture
-def committed(database):
-    """工作會自己開 session、自己 commit；測試結束後把寫進去的資料清掉（區域保留），不影響其他測試。"""
-    yield
-    with engine.begin() as conn:
-        conn.execute(text(
-            "TRUNCATE crawl_runs, showtimes, movies, cinemas, restaurants, transit_fares, transit_links, stations, "
-            "locations, categories, jev_judgments RESTART IDENTITY CASCADE"
-        ))
 
 
 class FakeCollector(Collector):

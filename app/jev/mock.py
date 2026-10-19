@@ -64,6 +64,43 @@ def _area(question: Question, state: str) -> list[float]:
     return _by_keywords(question, state, AREA_WORDS, 3.0, NONE)
 
 
+def _number(state: str, label: str) -> int | None:
+    """讀出規劃文字裡的數字，例如「最緊的緩衝：25 分鐘」。"""
+    m = re.search(rf"{label}：(\d+)", state)
+    return int(m.group(1)) if m else None
+
+
+def _levels(level: float, count: int) -> list[float]:
+    """把 0～(count-1) 之間的等級換成機率：離 level 越近機率越高。"""
+    return softmax([-2.5 * abs(i - level) for i in range(count)])
+
+
+def _time_fit(question: Question, state: str) -> list[float]:
+    buffer = _number(state, "最緊的緩衝") or 0
+    # 開演前 15 分鐘到是規劃時預留的，算「剛好」；少於這個才算趕，多半小時以上算充裕
+    level = 0.0 if buffer < 15 else 1.0 if buffer <= 30 else 2.0
+    return _levels(level, len(question.options))
+
+
+def _transit_ease(question: Question, state: str) -> list[float]:
+    transfers, walk, wait = (_number(state, k) or 0 for k in ("轉乘", "步行合計", "等車最久"))
+    burden = transfers * 10 + walk + wait  # 每轉乘一次算 10 分鐘的麻煩
+    level = 2.0 if burden <= 25 else 1.0 if burden <= 55 else 0.0
+    return _levels(level, len(question.options))
+
+
+def _budget_fit(question: Question, state: str) -> list[float]:
+    total, budget = _number(state, "總花費估計"), _number(state, "總預算")
+    if not total or not budget:
+        return [1 / len(question.options)] * len(question.options)
+    ratio = total / budget
+    target = "within" if ratio <= 0.85 else "borderline" if ratio <= 1.0 else "over"
+    return softmax([3.0 if option == target else 0.0 for option in question.options])
+
+
+PLAN_RULES = {"time_fit": _time_fit, "transit_ease": _transit_ease, "budget_fit": _budget_fit}
+
+
 class MockJev:
     def ask(self, state: str, questions: list[Question]) -> dict[str, Answer]:
         answers = {}
@@ -74,7 +111,9 @@ class MockJev:
                 probs = _by_keywords(q, state, CUISINE_WORDS, 3.0, OTHER)
             elif q.id == "area":
                 probs = _area(q, state)
-            else:  # 規劃時的題目在第 6 步加上規則；在那之前沒有把握，交給 LLM 備援
+            elif q.id in PLAN_RULES:
+                probs = PLAN_RULES[q.id](q, state)
+            else:  # 不認得的題目：沒有把握，交給 LLM 備援
                 probs = [1 / len(q.options)] * len(q.options)
             by_option = dict(zip(q.options, probs))
             choice = max(by_option, key=by_option.get)

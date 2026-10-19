@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 
 from ..config import settings
 from .client import Answer, JevUnavailable, TypeSafeJev
@@ -31,7 +32,9 @@ def model_name(jev: MockJev | TypeSafeJev) -> str | None:
     return current_model_version(jev.redis)
 
 
-def judge(state: str, questions: list[Question], jev: MockJev | TypeSafeJev | None = None) -> dict[str, Answer | None]:
+def judge(state: str, questions: list[Question], jev: MockJev | TypeSafeJev | None = None,
+          on_fallback: Callable[[], None] | None = None) -> dict[str, Answer | None]:
+    """on_fallback：第一次改問 LLM 前呼叫（規劃時推送 llm_fallback 進度）。"""
     jev = jev or get_jev()
     try:
         answers = jev.ask(state, questions)
@@ -42,6 +45,9 @@ def judge(state: str, questions: list[Question], jev: MockJev | TypeSafeJev | No
     for q in questions:
         answer = answers.get(q.id)
         if answer is None or (answer.confidence is not None and answer.confidence < settings.jev_confidence_threshold):
+            if on_fallback is not None:
+                on_fallback()
+                on_fallback = None
             try:
                 answer = llm_answer(state, q) or answer
             except LLMUnavailable:

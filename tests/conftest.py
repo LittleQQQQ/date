@@ -78,3 +78,18 @@ def session(database):
     s.close()
     trans.rollback()
     conn.close()
+
+
+@pytest.fixture
+def committed(database):
+    """要讓別的連線看得到的資料（背景工作自己開 session）：真的 commit，測試結束後清掉（區域保留）。"""
+    from sqlalchemy import text
+
+    from app.db import engine
+
+    yield
+    with engine.begin() as conn:
+        conn.execute(text(
+            "TRUNCATE crawl_runs, showtimes, movies, cinemas, restaurants, transit_fares, transit_links, stations, "
+            "locations, categories, jev_judgments RESTART IDENTITY CASCADE"
+        ))
