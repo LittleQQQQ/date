@@ -279,3 +279,14 @@ async def test_timeout_and_dead_worker_end_with_an_error(redis_client, fast):
     finally:
         await run.close()
     assert not redis_client.exists("active:plan:1.2.3.4")
+
+
+# ---------- 網頁 ----------
+
+
+def test_frontend_is_served_next_to_the_api(client):
+    page = client.get("/")
+    assert page.status_code == 200 and 'id="plan-form"' in page.text and page.headers["content-type"].startswith("text/html")
+    script = client.get("/app.js")
+    assert script.status_code == 200 and "/api/plans" in script.text
+    assert error_of(client.get("/api/nothing")) == (404, "NOT_FOUND")  # API 的路徑不會被網頁蓋掉

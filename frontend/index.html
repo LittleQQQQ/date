@@ -3,16 +3,16 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>約會一條龍</title>
+  <title>約會行程規劃</title>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
   <header class="top">
     <div class="brand">
-      <h1>約會一條龍</h1>
-      <p>電影 ＋ 餐廳 ＋ 交通，一次排好</p>
+      <h1>約會行程規劃</h1>
+      <p>電影 ＋ 餐廳 ＋ 交通，一次排好（八德、桃園、中壢、青埔）</p>
     </div>
-    <ul class="chips" id="status" aria-label="系統狀態"></ul>
+    <ul class="chips" id="status" aria-label="資料狀態"></ul>
   </header>
 
   <main class="wrap">
@@ -20,41 +20,39 @@
       <h2>選擇約會條件</h2>
       <form id="plan-form" novalidate>
         <div class="grid">
-          <label>約會縣市<select name="city"></select></label>
-          <label>商圈<select name="area"></select></label>
-          <label>從哪個縣市出發<select name="origin_city"></select></label>
-          <label>出發站<select name="origin"></select></label>
-          <label>日期<select name="date"></select></label>
-          <label>最早出門<select name="depart_after"></select></label>
-          <label>最晚到家<select name="home_by"></select></label>
-          <label>吃飯順序
-            <select name="meal_order">
-              <option value="any">都可以</option>
-              <option value="after">看完電影再吃</option>
-              <option value="before">先吃再看電影</option>
+          <label>區域<select name="area" required></select></label>
+          <label>出發地<select name="origin_location_id" required></select></label>
+          <label>結束後要去<select name="destination_location_id" required></select></label>
+          <label>順序
+            <select name="order">
+              <option value="movie_first">先看電影再吃飯</option>
+              <option value="meal_first">先吃飯再看電影</option>
             </select>
           </label>
-          <label>想看的片<select name="movie_query"></select></label>
-          <label>想看的片型<select name="genre"></select></label>
-          <label>影廳<select name="screen_type"></select></label>
-          <label>語言<select name="audio"></select></label>
+          <label>日期<select name="date" required></select></label>
+          <label>出發時間<select name="time" required></select></label>
+          <label>想看的電影種類<select name="movie_genre"></select></label>
           <label>想吃<select name="cuisine"></select></label>
-          <label>飲食限制<select name="diet"></select></label>
-          <label>每人預算（含來回車資）<select name="budget_per_person"></select></label>
-          <label>影城到餐廳步行<select name="max_walk_min"></select></label>
+          <label>人數<select name="party_size"></select></label>
+          <label>總預算（所有人加起來）<select name="budget_total"></select></label>
         </div>
+        <p class="hint" id="coverage-hint"></p>
         <div class="form-foot">
-          <button type="submit" class="primary">幫我排行程</button>
-          <p class="field-error" id="form-error" hidden></p>
+          <button type="submit" class="primary" id="submit">幫我排行程</button>
+          <button type="button" class="ghost" id="cancel" hidden>取消</button>
+          <p class="field-error" id="form-error" role="alert" hidden></p>
         </div>
       </form>
-      <p class="hint">程式先找出時間、交通都接得起來的組合，再由 Jev 決定看哪部片、吃哪一家。可以跨縣市出發，系統會自動安排捷運、台鐵、高鐵、公車轉乘。</p>
+      <p class="hint">程式先找出時間、交通都接得上的「電影＋餐廳」組合，再請 Jev 依時間、交通、預算打分數，列出最好的 5 個。票價和車資會乘以人數。</p>
     </section>
 
+    <section id="progress" aria-live="polite"></section>
     <section id="results" aria-live="polite"></section>
   </main>
 
-  <footer class="foot" id="foot"></footer>
+  <footer class="foot">
+    資料來源：電影場次來自開眼電影網；餐廳來自 © OpenStreetMap 貢獻者與 Google 地圖；交通依交通部 TDX 的班表與票價估算，實際以業者公告為準。
+  </footer>
   <script src="app.js"></script>
 </body>
 </html>
