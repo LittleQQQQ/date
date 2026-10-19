@@ -4,7 +4,7 @@ Jev 只做一件事：讀一段文字，對固定選項給出機率。它不抓�
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 
 @dataclass(frozen=True)
@@ -65,8 +65,9 @@ class JevAnswer:
     question: str
     options: list[str]
     probs: list[float]
-    source: str = "mock"  # mock / api / user
+    source: str = "mock"  # mock / api / user / llm（Jev 沒把握，LLM 幫忙選的）
     overridden: bool = False
+    text: str = field(default="", repr=False)  # Jev 讀的那段文字；Jev 沒把握時原樣交給 LLM
 
     @property
     def top(self) -> str:
@@ -80,7 +81,14 @@ class JevAnswer:
         return self.probs[self.options.index(option)] if option in self.options else 0.0
 
     def confident(self, threshold: float) -> bool:
-        return self.overridden or self.confidence >= threshold
+        """使用者確認過、LLM 幫忙選過，或 Jev 自己夠有把握，就不再請使用者確認。"""
+        return self.overridden or self.source == "llm" or self.confidence >= threshold
+
+    def with_llm_choice(self, choice: str) -> JevAnswer:
+        """Jev 沒把握、LLM 選了 choice：LLM 的選擇占八成、Jev 原本的機率占兩成。
+        LLM 選的一定排第一，其他選項維持 Jev 的順序，所以排名、組合信心照常算。"""
+        probs = [0.2 * p + (0.8 if option == choice else 0.0) for option, p in zip(self.options, self.probs)]
+        return JevAnswer(self.key, self.question, self.options, probs, source="llm", text=self.text)
 
     def apply_override(self, overrides: dict[str, str]) -> JevAnswer:
         """使用者已經確認過答案，就用使用者的答案取代 Jev 的猜測。"""

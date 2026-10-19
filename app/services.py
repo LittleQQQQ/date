@@ -29,6 +29,7 @@ from .jev import (
     JevService,
     diet_question,
 )
+from .jev.assist import LlmAssist
 from .jev.service import label_subject, place_subject, restaurant_context, restaurant_subject, title_subject
 from .models import Area, Cinema, Movie, Restaurant, ScrapeRun, Showtime, Station, TransitLink
 from .planner import Place, PlanContext, RestaurantInfo, ShowtimeInfo
@@ -160,6 +161,13 @@ def build_context(session: Session, req: PlanRequest, jev: JevService) -> tuple[
     ).all()
 
     ov = req.overrides
+    # Jev 沒把握時請 LLM 幫忙（JEV_LLM_ASSIST）：
+    # - 固定的題目（影廳、語言、約會適合度、料理）在匯入時先問過，這裡只讀存好的答案，不多花時間
+    # - 跟這次條件有關的題目（片名比對、飲食限制）最多問 JEV_LLM_ASSIST_MAX_CALLS 題
+    # - 選片、選餐廳、選車（planner 經由 ctx.ask 問）不限，每次排程最多 10 題
+    stored = LlmAssist(session, max_calls=0)
+    request_specific = LlmAssist(session, max_calls=settings.jev_llm_assist_max_calls)
+    choices = LlmAssist(session)
     showtimes, without_movie = [], 0
     for st, cinema, movie in rows:
         if movie is None:  # 對不到電影就不知道片長，先跳過
@@ -167,9 +175,9 @@ def build_context(session: Session, req: PlanRequest, jev: JevService) -> tuple[
             continue
         title_match = None
         if req.movie_query:
-            title_match = jev.ask(
+            title_match = request_specific.check(jev.ask(
                 TITLE_MATCH, title_subject(st.raw_title, req.movie_query), {"query": req.movie_query, "title": st.raw_title}
-            ).apply_override(ov)
+            ).apply_override(ov))
         showtimes.append(
             ShowtimeInfo(
                 id=st.id,
@@ -180,8 +188,8 @@ def build_context(session: Session, req: PlanRequest, jev: JevService) -> tuple[
                 start=to_min(st.start),
                 label=st.label,
                 price=st.price,
-                screen=jev.ask(SCREEN, label_subject(st.label), {"label": st.label}).apply_override(ov),
-                audio=jev.ask(AUDIO, label_subject(st.label), {"label": st.label}).apply_override(ov),
+                screen=stored.check(jev.ask(SCREEN, label_subject(st.label), {"label": st.label}).apply_override(ov)),
+                audio=stored.check(jev.ask(AUDIO, label_subject(st.label), {"label": st.label}).apply_override(ov)),
                 title_match=title_match,
                 genre=movie.genre,
                 synopsis=movie.synopsis,
@@ -206,13 +214,15 @@ def build_context(session: Session, req: PlanRequest, jev: JevService) -> tuple[
                 last_order_min=r.last_order_min,
                 typical_wait_min=r.typical_wait_min,
                 reservable=r.reservable,
-                date_fit=jev.ask(DATE_FIT, subject, context).apply_override(ov),
+                date_fit=stored.check(jev.ask(DATE_FIT, subject, context).apply_override(ov)),
                 pace=jev.ask(MEAL_PACE, subject, context).apply_override(ov),
-                cuisine=jev.ask(CUISINE, subject, context).apply_override(ov),
+                cuisine=stored.check(jev.ask(CUISINE, subject, context).apply_override(ov)),
                 description=r.description,
                 reviews=list(r.reviews or []),
                 diet_ok=(
-                    jev.ask(diet, f"{subject}|diet:{req.diet}", {**context, "diet": req.diet}).apply_override(ov)
+                    request_specific.check(
+                        jev.ask(diet, f"{subject}|diet:{req.diet}", {**context, "diet": req.diet}).apply_override(ov)
+                    )
                     if diet
                     else None
                 ),
@@ -229,10 +239,11 @@ def build_context(session: Session, req: PlanRequest, jev: JevService) -> tuple[
         restaurants=restaurants,
         weekend=req.date.weekday() >= 4,  # 週五晚上到週日
         threshold=settings.jev_confidence_threshold,
-        ask=lambda question, subject, context: jev.ask(question, subject, context).apply_override(ov),
+        ask=lambda question, subject, context: choices.check(jev.ask(question, subject, context).apply_override(ov)),
     )
     return ctx, {
         "showtimes_without_movie": without_movie, "restaurants_closed": closed, "restaurant_source": restaurant_source,
+        "llm_assists": (stored, request_specific, choices),
     }
 
 
@@ -242,9 +253,13 @@ def plan_date(session: Session, req: PlanRequest) -> dict:
     result = planner.plan(req, ctx)
     _save_judgments(session)
     result["restaurant_source"] = extra.pop("restaurant_source")
+    llm_calls = sum(a.calls for a in extra.pop("llm_assists"))  # planner 問完選擇題才算得出來
     result["stats"].update(extra)
     result["request"] = req.model_dump(mode="json")
-    result["jev"] = {"mode": jev.backend.name, "threshold": ctx.threshold, "new_calls": jev.calls}
+    result["jev"] = {
+        "mode": jev.backend.name, "threshold": ctx.threshold, "new_calls": jev.calls,
+        "llm_assist": settings.jev_llm_assist and bool(settings.ollama_url), "llm_calls": llm_calls,
+    }
     result["data"] = data_status(session)
     return result
 

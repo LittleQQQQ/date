@@ -23,8 +23,10 @@ from .db import Base, SessionLocal, engine, schema_message, schema_problems
 from .config import settings
 from .jev import AUDIO, CUISINE, DATE_FIT, GENRE, MEAL_PACE, SCREEN, JevService
 from .jev.mock import normalize_title
+from .jev.assist import LlmAssist
 from .jev.service import label_subject, movie_context, movie_subject, restaurant_context, restaurant_subject
 from .models import Area, Cinema, Movie, Restaurant, ScrapeRun, Showtime, Station, TransitLink
+from .scope import is_open
 from .timeutil import now_tw, today_tw
 
 T = TypeVar("T", Cinema, Movie, Restaurant)
@@ -208,20 +210,27 @@ def precompute_jev(session: Session) -> int:
     """事先問好不會隨使用者輸入改變的題目（餐廳、場次標示、片型），回傳實際呼叫 Jev 的次數。
 
     每問完一家餐廳、一個場次標示、一部電影就提交一次，Jev 很慢時也不會長時間鎖住資料庫，網頁的排程請求才寫得進去。
+    Jev 沒把握的題目也在這裡先請 LLM 幫忙（JEV_LLM_ASSIST），排程時直接讀存好的答案；
+    餐廳只問開放範圍內的（ACTIVE_CITIES），其他縣市的不會被排到，不必花時間。用餐快慢只用到 Jev 的首選，不必問。
     """
     jev = JevService(session)
+    helper = LlmAssist(session)
     for r in session.scalars(select(Restaurant)).all():
-        for question in (DATE_FIT, MEAL_PACE, CUISINE):
-            jev.ask(question, restaurant_subject(r), restaurant_context(r))
+        subject, context = restaurant_subject(r), restaurant_context(r)
+        jev.ask(MEAL_PACE, subject, context)
+        for question in (DATE_FIT, CUISINE):
+            answer = jev.ask(question, subject, context)
+            if is_open(r.area_id.split("/", 1)[0]):
+                helper.check(answer)
         session.commit()
     for label in session.scalars(select(Showtime.label).distinct()).all():
         for question in (SCREEN, AUDIO):
-            jev.ask(question, label_subject(label), {"label": label})
+            helper.check(jev.ask(question, label_subject(label), {"label": label}))
         session.commit()
-    # 來源沒給片型的電影（開眼）由 Jev 判斷；沒把握就留空
+    # 來源沒給片型的電影（開眼）由 Jev 判斷，沒把握就請 LLM；都沒把握就留空
     for m in session.scalars(select(Movie).where(Movie.genre == "")).all():
-        answer = jev.ask(GENRE, movie_subject(m), movie_context(m))
-        if answer.confidence >= settings.jev_confidence_threshold:
+        answer = helper.check(jev.ask(GENRE, movie_subject(m), movie_context(m)))
+        if answer.confident(settings.jev_confidence_threshold):
             m.genre = answer.top
         session.commit()
     return jev.calls

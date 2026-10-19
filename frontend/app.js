@@ -300,7 +300,10 @@ function renderConfirmations(items) {
 
 function choiceRow(label, c, only = "只有這個選項排得進去") {
   const pct = Math.round(c.prob * 100);
-  const who = c.source === "user" ? "（你指定或確認的）" : c.source === "program" ? `（${only}）` : `（Jev 第 ${c.rank} 名）`;
+  const who = c.source === "user" ? "（你指定或確認的）"
+    : c.source === "program" ? `（${only}）`
+    : c.source === "llm" ? "（Jev 沒把握，LLM 選的）"
+    : `（Jev 第 ${c.rank} 名）`;
   return `
     <li>
       <span class="q">${esc(label)}</span>
@@ -312,9 +315,10 @@ function renderJev(p) {
   const threshold = state.meta?.jev.threshold ?? 0.6;
   const attributes = p.jev.map((a) => {
     const pct = Math.round(a.confidence * 100);
-    const who = a.overridden ? "（你確認的）" : "";
+    const who = a.overridden ? "（你確認的）" : a.source === "llm" ? "（Jev 沒把握，LLM 判斷）" : "";
+    const unsure = a.confidence < threshold && !a.overridden && a.source !== "llm";
     return `
-      <li class="${a.confidence < threshold ? "low" : ""}">
+      <li class="${unsure ? "low" : ""}">
         <span class="q">${esc(a.question)}</span>
         <span class="row"><strong>${esc(a.top)}${who}</strong><span class="bar"><i style="width:${pct}%"></i></span><span>${pct}%</span></span>
       </li>`;

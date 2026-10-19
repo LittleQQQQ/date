@@ -1,4 +1,4 @@
-"""LLM（本機 Ollama）：只負責「語言」——把一句話轉成條件，以及把結果寫成口語摘要。
+"""LLM（本機 Ollama）：負責「語言」——把一句話轉成條件、把結果寫成口語摘要；Jev 沒把握時也幫忙判斷（judge）。
 
 - 時間、金額、行程都由程式計算，LLM 只能引用，不能改。
 - 日期、出發站、片名、時間、預算這類規則就能準確抓到的欄位，以規則為準；LLM 補其他欄位。
@@ -58,6 +58,42 @@ async def status() -> dict:
     info["available"] = True
     info["model_installed"] = settings.ollama_model in names
     return info
+
+
+# ---------- Jev 沒把握時幫忙判斷 ----------
+
+JUDGE_TIMEOUT = 20.0  # 秒；排程當下呼叫，等太久不如請使用者確認
+_JUDGE_SYSTEM = (
+    "你幫忙回答封閉式的判斷題。只根據使用者給的資料判斷，不要猜資料裡沒有的事；"
+    "從選項中選一個最可能的答案，用 JSON 回答 {\"choice\": 選項}。"
+)
+
+
+def judge(question: str, options: list[str], text: str) -> str | None:
+    """請 LLM 回答一題封閉式問題（和 Jev 讀同一段文字、選同樣的選項）。回傳選項之一；沒開、失敗、答非所問都回 None。
+
+    排程是同步程式（在 MCP 工具裡執行），所以這裡用同步的 HTTP 呼叫。
+    """
+    if not settings.ollama_url:
+        return None
+    payload = {
+        "model": settings.ollama_model,
+        "stream": False,
+        "options": {"temperature": 0},
+        "keep_alive": "10m",
+        "format": {"type": "object", "properties": {"choice": {"type": "string", "enum": list(options)}}, "required": ["choice"]},
+        "messages": [
+            {"role": "system", "content": _JUDGE_SYSTEM},
+            {"role": "user", "content": f"問題：{question}\n選項：{'、'.join(options)}\n資料：\n{text}"},
+        ],
+    }
+    try:
+        resp = httpx.post(f"{settings.ollama_url.rstrip('/')}/api/chat", json=payload, timeout=JUDGE_TIMEOUT)
+        resp.raise_for_status()
+        choice = json.loads(resp.json()["message"]["content"])["choice"]
+    except (httpx.HTTPError, ValueError, KeyError, TypeError):
+        return None
+    return choice if choice in options else None
 
 
 # ---------- 規則解析 ----------

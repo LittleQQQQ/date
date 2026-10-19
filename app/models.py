@@ -170,6 +170,19 @@ class ApiUsage(Base):
     calls: Mapped[int] = mapped_column(Integer, default=0)
 
 
+class LlmJudgment(Base):
+    """Jev 沒把握時 LLM 幫忙選的答案（JEV_LLM_ASSIST）。同一題、同一段文字、同一個模型就直接用，不再問一次。"""
+
+    __tablename__ = "llm_judgments"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    key: Mapped[str] = mapped_column(String(500), unique=True)  # 和 JevAnswer.key 相同：題目＋對象
+    input_hash: Mapped[str] = mapped_column(String(64))
+    model: Mapped[str] = mapped_column(String(100))
+    choice: Mapped[str] = mapped_column(String(300))
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=now_tw)
+
+
 class ScrapeRun(Base):
     """每次執行資料來源（示意資料或爬蟲）的紀錄。"""
 
