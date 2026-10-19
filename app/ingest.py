@@ -303,6 +303,20 @@ def run_collector(session: Session, collector: Collector) -> CrawlRun:
 # ---------- 指令 ----------
 
 
+def _run_google(session: Session) -> CrawlRun:
+    """手動跑一次 Google 找餐廳（每個車站一次 Nearby Search），跑完印出這個月各 SKU 用了幾次。"""
+    from .collectors.google_places import GooglePlaces, use_google
+    from .google_sync import refresh_google_places
+
+    if not use_google():
+        raise SystemExit("沒有設定 GOOGLE_PLACES_API_KEY（.env），不呼叫 Google")
+    google = GooglePlaces()
+    run = run_job(session, "google_nearby", lambda: refresh_google_places(session, google))
+    for quota in (google.nearby_quota, google.details_quota, google.location_quota):
+        print(f"{quota.name}：這個月用了 {quota.used()} / {quota.limit} 次")
+    return run
+
+
 def make_collector(name: str, session: Session) -> Collector:
     """建立爬蟲；需要涵蓋範圍或路網骨架的，從資料庫讀出來交給它。"""
     from .collectors import COLLECTORS
@@ -314,7 +328,7 @@ def make_collector(name: str, session: Session) -> Collector:
 
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="執行資料來源並匯入資料庫（資料表要先用 alembic upgrade head 建好）")
-    parser.add_argument("source", help="network、seed，或爬蟲名稱（atmovies、osm、tdx）")
+    parser.add_argument("source", help="network、seed、google（Google 找餐廳，要有金鑰），或爬蟲名稱（atmovies、osm、tdx）")
     args = parser.parse_args(argv)
 
     from .db import SessionLocal
@@ -324,6 +338,8 @@ def main(argv: list[str] | None = None) -> None:
             run = run_job(session, "network", lambda: load_network(session))
         elif args.source == "seed":
             run = run_job(session, "seed", lambda: load_seed(session))
+        elif args.source == "google":
+            run = _run_google(session)
         else:
             run = run_collector(session, make_collector(args.source, session))
     if run.status == "success":

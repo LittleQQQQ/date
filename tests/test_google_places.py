@@ -341,3 +341,10 @@ def test_job_skips_without_key_and_records_runs_with_one(monkeypatch, committed)
     assert refresh_job.refresh_google_places() == {"google_nearby": "success"}
     with refresh_job.SessionLocal() as session:
         assert session.scalar(select(CrawlRun.job).order_by(CrawlRun.id.desc())) == "google_nearby"
+
+
+def test_manual_command_refuses_without_key(database):
+    from app.ingest import main
+
+    with pytest.raises(SystemExit, match="GOOGLE_PLACES_API_KEY"):
+        main(["google"])
