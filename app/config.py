@@ -1,7 +1,4 @@
-"""設定：從環境變數或專案根目錄的 .env 讀取（規格書 8.2）。
-
-v2 改寫中：每完成一步，再把那一步用到的設定加進來。
-"""
+"""設定：從環境變數或專案根目錄的 .env 讀取（規格書 8.2）。環境變數優先於 .env。"""
 from __future__ import annotations
 
 from pathlib import Path

@@ -138,3 +138,19 @@ def test_jobs_run_through_rq():
     q = Queue("crawl", connection=get_rq_redis(), is_async=False)
     job = q.enqueue(refresh_transit)
     assert job.is_finished and job.return_value() == SKIPPED
+
+
+# ---------- worker 進入點 ----------
+
+
+def test_plans_only_worker_skips_catch_up(monkeypatch):
+    from app.jobs import worker
+
+    calls = []
+    monkeypatch.setattr(worker, "catch_up", lambda: calls.append("catch_up") or [])
+    worker.main(["--queues", "plans", "--simple", "--burst"])
+    assert calls == []  # 只處理規劃：不同步資料、不補排抓資料的工作
+    worker.main(["--simple", "--burst"])
+    assert calls == ["catch_up"]
+    with pytest.raises(SystemExit):
+        worker.main(["--queues", "plans,email"])

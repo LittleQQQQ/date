@@ -1,5 +1,5 @@
-# 約會一條龍：網站＋REST API＋MCP 端點（同一個服務）
-# 用法見 README「用 Docker 部署」；通常搭配 docker-compose.yml 的 PostgreSQL 一起跑
+# 約會行程規劃（v2）：api（網頁＋REST API＋/mcp）、worker、cron、migrate 共用這個映像，
+# 各自的啟動指令寫在 docker-compose.yml。用法見 README「用 Docker 部署」。
 FROM python:3.13-slim
 
 ENV PYTHONUNBUFFERED=1 \
@@ -19,7 +19,11 @@ COPY data/seed ./data/seed
 COPY alembic.ini ./
 COPY migrations ./migrations
 
+# 用一般使用者執行
+RUN useradd --create-home --uid 1000 app && mkdir -p data/cache && chown -R app data/cache
+USER app
+
 EXPOSE 8000
 
-# 只開一個 worker：背景更新爬蟲寫在網站程序裡，開多個會有好幾份爬蟲同時抓資料、寫資料庫
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# 預設啟動 api；--proxy-headers 讓限流拿到使用者的真實 IP（前面的 nginx 會設定 X-Forwarded-For）
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers", "--forwarded-allow-ips", "*"]

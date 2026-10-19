@@ -1,8 +1,28 @@
-# 約會一條龍：網站＋PostgreSQL（LLM 選用）。用法見 README「用 Docker 部署」。
-# 密碼與金鑰放在同一層的 .env（例如 DB_PASSWORD=…），compose 會自動讀進來，不會打包進映像。
+# 約會行程規劃（v2）主機部署（規格書 8.1）。用法見 README「用 Docker 部署」。
+# 設定放在同一層的 .env（從 .env.docker.example 複製），不會進 git，也不會打包進映像。
+#
+#   proxy（nginx，對外 8000）→ api（網頁、REST API、/mcp）→ Redis 佇列 → worker（規劃、抓資料）
+#   cron 定時排工作；資料在 db（PostGIS）；LLM 備援用 Ollama；tunnel 提供對外網址
+name: date-v2  # 跟舊版（專案名稱 date）的容器和資料分開
+x-app: &app
+  build: .
+  image: date-v2-app
+  env_file:
+    - path: .env
+      required: false
+  environment:
+    # 容器裡的網址：蓋掉 .env 裡開發用的 localhost
+    DATABASE_URL: postgresql+psycopg://date_planner:${DB_PASSWORD:?請在 .env 設定 DB_PASSWORD}@db:5432/date_planner
+    REDIS_URL: redis://redis:6379/0
+    # 預設用這台電腦上裝好的 Ollama；用下面的 ollama 容器就填 http://ollama:11434；留空 = 不用 LLM
+    OLLAMA_BASE_URL: ${OLLAMA_URL-http://host.docker.internal:11434}
+  extra_hosts:
+    - "host.docker.internal:host-gateway"  # Linux 主機也能用這個名字連到本機的 Ollama
+  restart: unless-stopped
+
 services:
   db:
-    image: postgres:17
+    image: postgis/postgis:16-3.5
     environment:
       POSTGRES_USER: date_planner
       POSTGRES_PASSWORD: ${DB_PASSWORD:?請在 .env 設定 DB_PASSWORD}
@@ -16,32 +36,87 @@ services:
       retries: 12
     restart: unless-stopped
 
-  app:
-    build: .
-    ports:
-      - "${APP_PORT:-8000}:8000"
-    environment:
-      DATABASE_URL: postgresql+psycopg://date_planner:${DB_PASSWORD}@db:5432/date_planner
-      ACTIVE_CITIES: ${ACTIVE_CITIES-桃園市}
-      # 留空 = 不用 LLM（摘要用範本、Jev 沒把握時直接問使用者）
-      # 用這台電腦上裝好的 Ollama：http://host.docker.internal:11434；用下面的 ollama 容器：http://ollama:11434
-      OLLAMA_URL: ${OLLAMA_URL:-}
-      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5:3b}
-      JEV_MODE: ${JEV_MODE:-mock}
-      JEV_API_URL: ${JEV_API_URL:-}
-      JEV_API_KEY: ${JEV_API_KEY:-}
-      GOOGLE_PLACES_API_KEY: ${GOOGLE_PLACES_API_KEY:-}
-      AUTO_REFRESH: ${AUTO_REFRESH:-true}
+  redis:
+    image: redis:7.4
+    # 規格書 5.1：記憶體上限 256 MB、滿了就拒絕寫入、每 60 秒有變動就存檔
+    command: ["redis-server", "--maxmemory", "256mb", "--maxmemory-policy", "noeviction", "--save", "60", "1"]
     volumes:
-      - cache:/app/data/cache  # 爬蟲的網頁快取，重建容器也保留
-    extra_hosts:
-      - "host.docker.internal:host-gateway"  # Linux 主機也能用這個名字連到本機的 Ollama
+      - redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    restart: unless-stopped
+
+  # 建立或升級資料表，做完就結束；api、worker、cron 等它成功才啟動
+  migrate:
+    <<: *app
+    command: ["alembic", "upgrade", "head"]
     depends_on:
       db:
         condition: service_healthy
+    restart: "no"
+
+  api:
+    <<: *app
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health', timeout=5)"]
+      interval: 10s
+      timeout: 6s
+      retries: 6
+      start_period: 10s
+
+  # 啟動時先同步路網與暫定資料，補抓今天還沒抓的場次（第一次約 5～10 分鐘），再處理 plans、crawl 佇列
+  worker:
+    <<: *app
+    command: ["python", "-m", "app.jobs.worker"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+
+  # 只處理規劃：抓資料一次要好幾分鐘，規劃不用排在它後面
+  worker-plans:
+    <<: *app
+    command: ["python", "-m", "app.jobs.worker", "--queues", "plans"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+
+  # 定時把工作排進佇列（時間是台灣時間）：每天 03:00 重判斷、06:00 開眼與 OSM；每週一 04:00 TDX、05:00 Google
+  cron:
+    <<: *app
+    command: ["rq", "cron", "app.jobs.cron_config", "--path", "/app", "--url", "redis://redis:6379/0"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+
+  proxy:
+    image: nginx:1.27-alpine
+    ports:
+      - "${APP_PORT:-8000}:8000"
+    volumes:
+      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+    networks:
+      default:
+        aliases: [app]  # 舊版通道設定的服務網址是 app:8000，不用改
+    depends_on:
+      api:
+        condition: service_healthy
     restart: unless-stopped
 
-  # 選用：docker compose --profile llm up -d，第一次要下載模型（見 README）
+  # 選用：docker compose --profile llm up -d，.env 填 OLLAMA_URL=http://ollama:11434，第一次要下載模型（見 README）
   ollama:
     image: ollama/ollama
     volumes:
@@ -50,14 +125,14 @@ services:
     restart: unless-stopped
 
   # 對外的固定網址（Cloudflare 具名通道）：docker compose --profile tunnel up -d
-  # 要先在 Cloudflare 建好通道，把 token 填進 .env 的 CLOUDFLARE_TUNNEL_TOKEN（見 README「換主機」）
+  # 要先在 Cloudflare 建好通道，把 token 填進 .env 的 CLOUDFLARE_TUNNEL_TOKEN（見 README「讓別人連得到」）
   tunnel:
     image: cloudflare/cloudflared:2026.10.1
     command: tunnel --no-autoupdate run
     environment:
       TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:-}
     depends_on:
-      - app
+      - proxy
     profiles: ["tunnel"]
     restart: unless-stopped
 
@@ -65,12 +140,12 @@ services:
   # 網址在 docker compose logs quick-tunnel 裡，找 trycloudflare.com
   quick-tunnel:
     image: cloudflare/cloudflared:2026.10.1
-    command: tunnel --no-autoupdate --url http://app:8000
+    command: tunnel --no-autoupdate --url http://proxy:8000
     depends_on:
-      - app
+      - proxy
     profiles: ["quick-tunnel"]
 
 volumes:
   pgdata:
-  cache:
+  redis:
   ollama:

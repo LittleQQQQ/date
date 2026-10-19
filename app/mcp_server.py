@@ -182,8 +182,8 @@ async def plan_date(
 
 def transport_security() -> TransportSecuritySettings:
     """防 DNS rebinding：只接受 localhost 和 MCP_ALLOWED_HOSTS 列出的網域。"""
-    hosts = ["127.0.0.1:*", "localhost:*", "[::1]:*"]
-    origins = ["http://127.0.0.1:*", "http://localhost:*", "http://[::1]:*"]
+    hosts = ["127.0.0.1", "localhost", "[::1]", "127.0.0.1:*", "localhost:*", "[::1]:*"]
+    origins = ["http://127.0.0.1", "http://localhost", "http://127.0.0.1:*", "http://localhost:*", "http://[::1]:*"]
     for host in settings.mcp_allowed_host_list:
         hosts += [host, f"{host}:*"]
         origins += [f"https://{host}", f"http://{host}"]
