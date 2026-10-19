@@ -1,0 +1,40 @@
+# 開發與測試用：只開 PostgreSQL（PostGIS）和 Redis，程式在本機跑。
+#   docker compose -f compose.dev.yml up -d
+# 本機已經有 PostgreSQL 的話 5432 會被佔用，所以這裡改用 5433；Redis 用 6380。
+# 資料庫有兩個：date_v2（開發用）、date_v2_test（pytest 用，每次測試會清空重建）。
+name: date-v2-dev  # 跟舊版 docker-compose.yml（專案名稱 date）分開，兩邊可以同時跑
+services:
+  db:
+    image: postgis/postgis:16-3.5
+    environment:
+      POSTGRES_USER: date_planner
+      POSTGRES_PASSWORD: dev_only
+      POSTGRES_DB: date_v2
+    ports:
+      - "5433:5432"
+    volumes:
+      - pgdata_v2:/var/lib/postgresql/data
+      - ./db/dev-init.sql:/docker-entrypoint-initdb.d/10-test-db.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U date_planner -d date_v2"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  redis:
+    image: redis:7.4
+    # 規格書 5.1：記憶體上限 256 MB、滿了就拒絕寫入、每 60 秒有變動就存檔
+    command: ["redis-server", "--maxmemory", "256mb", "--maxmemory-policy", "noeviction", "--save", "60", "1"]
+    ports:
+      - "6380:6379"
+    volumes:
+      - redis_v2:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+volumes:
+  pgdata_v2:
+  redis_v2:
