@@ -15,7 +15,8 @@ _HHMM = re.compile(r"^(\d{1,2}):(\d{2})$")
 
 
 def now_tw() -> datetime:
-    return datetime.now(TW).replace(tzinfo=None)
+    """現在的台灣時間，帶時區。資料表的時間欄位都是 timestamptz，不帶時區的時間會被當成 UTC 存進去。"""
+    return datetime.now(TW)
 
 
 def today_tw() -> date:

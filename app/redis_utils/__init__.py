@@ -15,3 +15,9 @@ from ..config import settings
 def get_redis() -> redis.Redis:
     """同一個程序共用一個連線池。回傳的值是字串（decode_responses）。"""
     return redis.Redis.from_url(settings.redis_url, decode_responses=True)
+
+
+@lru_cache(maxsize=1)
+def get_rq_redis() -> redis.Redis:
+    """給 RQ 用的連線：RQ 自己處理位元組，不能自動轉成字串。"""
+    return redis.Redis.from_url(settings.redis_url)
