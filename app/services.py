@@ -5,15 +5,17 @@
 from __future__ import annotations
 
 import datetime as dt
+from dataclasses import dataclass
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from .collectors.google_places import GooglePlaces, use_google
+from .collectors.google_places import GooglePlaces, google_available
 from .collectors.osm import address, cuisine_category, estimate_price, place_hours
 from .google_sync import google_eatery, make_enricher
 from .models import (
-    Area, Cinema, CrawlRun, Location, Movie, Restaurant, Showtime, Station, TransitFare, TransitLink, lat_of, lng_of,
+    Area, Category, Cinema, CrawlRun, Location, Movie, Restaurant, Showtime, Station, TransitFare, TransitLink, lat_of,
+    lng_of,
 )
 from .planner import Eatery, PlanContext, ShowInfo
 from .routing import Place, Router, StationPlace
@@ -111,7 +113,16 @@ def last_showtime_date(session: Session, area_id: int) -> dt.date | None:
     return last.astimezone(TW).date() if last else None
 
 
-def load_plan_context(session: Session, req: PlanRequest, now: dt.datetime | None = None) -> PlanContext:
+@dataclass(frozen=True)
+class PlanTarget:
+    area: Area
+    origin: Place
+    destination: Place
+    depart_at: dt.datetime  # 台灣時間
+
+
+def check_plan_request(session: Session, req: PlanRequest, now: dt.datetime | None = None) -> PlanTarget:
+    """和資料庫有關的規則（規格書 6.4）：API 送進佇列前先檢查一次，worker 規劃前再檢查一次。"""
     area = session.scalar(select(Area).where(Area.code == req.area))
     if area is None:
         raise PlanError("NOT_FOUND", f"沒有這個區域：{req.area}")
@@ -126,7 +137,12 @@ def load_plan_context(session: Session, req: PlanRequest, now: dt.datetime | Non
         raise PlanError("NO_SHOWTIMES", f"{area.name}還沒有場次資料")
     if depart_at.date() > last:
         raise PlanError("VALIDATION_ERROR", f"{area.name}的場次資料只到 {last.isoformat()}")
+    return PlanTarget(area, origin, destination, depart_at)
 
+
+def load_plan_context(session: Session, req: PlanRequest, now: dt.datetime | None = None) -> PlanContext:
+    target = check_plan_request(session, req, now)
+    area, origin, destination, depart_at = target.area, target.origin, target.destination, target.depart_at
     day = depart_at.date()
     query = (
         select(Showtime, Movie, Cinema, lat_of(Cinema.geom), lng_of(Cinema.geom))
@@ -144,8 +160,8 @@ def load_plan_context(session: Session, req: PlanRequest, now: dt.datetime | Non
     ]
 
     # Google 的 Enterprise 額度用完（或沒填金鑰）就只讀 OSM 的餐廳（規格書 7.1 第 1 步）
-    google = google_client() if use_google() else None
-    sources = ["osm", "google"] if google is not None and google.details_quota.remaining() > 0 else ["osm"]
+    google = google_client() if google_available() else None
+    sources = ["osm", "google"] if google is not None else ["osm"]
     rq = select(Restaurant, lat_of(Restaurant.geom), lng_of(Restaurant.geom)).where(
         Restaurant.area_id == area.id, Restaurant.is_active, Restaurant.geom.is_not(None), Restaurant.source.in_(sources))
     if req.cuisine:
@@ -167,3 +183,66 @@ def load_plan_context(session: Session, req: PlanRequest, now: dt.datetime | Non
 def google_client() -> GooglePlaces:
     return GooglePlaces()
 
+
+
+# ---------- 查詢（REST 和 MCP 共用，規格書 6.2） ----------
+
+
+def list_areas(session: Session) -> list[dict]:
+    return [{"code": code, "name": name} for code, name in session.execute(select(Area.code, Area.name).order_by(Area.id))]
+
+
+def list_locations(session: Session, area_code: str) -> list[dict]:
+    """某區的地標：出發地和終點共用同一份清單。"""
+    area = session.scalar(select(Area).where(Area.code == area_code))
+    if area is None:
+        raise PlanError("NOT_FOUND", f"沒有這個區域：{area_code}")
+    rows = session.execute(
+        select(Location.id, Location.name, Location.address, lat_of(Location.geom), lng_of(Location.geom))
+        .where(Location.area_id == area.id).order_by(Location.id)
+    )
+    return [{"id": i, "name": name, "address": addr, "lat": lat, "lng": lng} for i, name, addr, lat, lng in rows]
+
+
+CATEGORY_KINDS = ("movie_genre", "cuisine")
+
+
+def list_categories(session: Session, kind: str | None = None) -> list[dict]:
+    """電影種類、餐廳類別；kind 不給就兩種都列。"""
+    if kind is not None and kind not in CATEGORY_KINDS:
+        raise PlanError("VALIDATION_ERROR", f"kind 只能是 {' 或 '.join(CATEGORY_KINDS)}")
+    query = select(Category.kind, Category.code, Category.label).order_by(Category.kind.desc(), Category.sort_order)
+    if kind is not None:
+        query = query.where(Category.kind == kind)
+    return [{"kind": k, "code": code, "label": label} for k, code, label in session.execute(query)]
+
+
+def restaurant_source(session: Session) -> str:
+    """規劃會用到的餐廳來源：有 Google 金鑰、Enterprise 額度沒用完、也有 Google 餐廳時是 google，否則 osm。"""
+    if not google_available():
+        return "osm"
+    has_google = session.scalar(select(Restaurant.id).where(
+        Restaurant.source == "google", Restaurant.is_active, Restaurant.geom.is_not(None)).limit(1))
+    return "google" if has_google is not None else "osm"
+
+
+def data_coverage(session: Session, now: dt.datetime | None = None) -> dict:
+    """每區有場次資料的日期範圍（還沒開演的），以及目前的餐廳來源（規格書 6.3）。沒有場次的區域日期是 null。"""
+    now = now or now_tw()
+    ranges = {
+        area_id: (first, last) for area_id, first, last in session.execute(
+            select(Cinema.area_id, func.min(Showtime.starts_at), func.max(Showtime.starts_at))
+            .join(Cinema, Cinema.id == Showtime.cinema_id)
+            .where(Showtime.starts_at > now, Cinema.is_active, Cinema.area_id.is_not(None))
+            .group_by(Cinema.area_id)
+        )
+    }
+    areas = []
+    for area_id, code, name in session.execute(select(Area.id, Area.code, Area.name).order_by(Area.id)):
+        first, last = ranges.get(area_id, (None, None))
+        areas.append({
+            "code": code, "name": name,
+            "showtime_from": first.astimezone(TW).date().isoformat() if first else None,
+            "showtime_to": last.astimezone(TW).date().isoformat() if last else None,
+        })
+    return {"areas": areas, "restaurant_source": restaurant_source(session)}

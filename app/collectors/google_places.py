@@ -143,7 +143,7 @@ class GooglePlaces:
         self.http = client or httpx.Client(timeout=10.0)
         r = redis_client or get_redis()
         self.nearby_quota = MonthlyQuota("google:nearby_pro", settings.google_nearby_monthly_limit, r)
-        self.details_quota = MonthlyQuota("google:details_enterprise", settings.google_details_monthly_limit, r)
+        self.details_quota = details_quota(r)
         self.location_quota = MonthlyQuota("google:details_essentials", settings.google_location_monthly_limit, r)
 
     def _call(self, quota: MonthlyQuota, method: str, url: str, fields: tuple[str, ...], **kwargs) -> dict:
@@ -195,4 +195,14 @@ class GooglePlaces:
 
 def use_google() -> bool:
     return bool(settings.google_places_api_key.strip())
+
+
+def details_quota(client: redis.Redis | None = None) -> MonthlyQuota:
+    """規劃時補店家資料（Enterprise）的每月額度；用完就改用 OSM 餐廳。"""
+    return MonthlyQuota("google:details_enterprise", settings.google_details_monthly_limit, client or get_redis())
+
+
+def google_available() -> bool:
+    """這次規劃能不能用 Google 餐廳：有金鑰，而且 Enterprise 額度還沒用完（規格書 7.1 第 1 步、6.3）。"""
+    return use_google() and details_quota().remaining() > 0
 

@@ -47,9 +47,18 @@ class Settings(BaseSettings):
     google_details_monthly_limit: int = 950  # Place Details Enterprise（規劃時補店家資料）；用完就改用 OSM
     google_location_monthly_limit: int = 9500  # Place Details Essentials（每 25 天更新座標）
 
+    # API（規格書 6.1、5.5）。CORS 只允許前端網域，多個用逗號分開；留空 = 不開 CORS（前端和 API 同一個網域）
+    cors_origins: str = ""
+    api_read_limit_per_minute: int = 60  # 每個 IP 每 60 秒的查詢次數
+    api_plan_limit_per_hour: int = 10  # 每個 IP 每小時送出規劃的次數
+
     # 交通部 TDX（規格書 v0.2 3.2）：每週更新台鐵、公車的班表與票價；留空就用路網骨架的估計值
     tdx_client_id: str = ""
     tdx_client_secret: str = ""
+
+    @property
+    def cors_origin_list(self) -> list[str]:
+        return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
 
     @property
     def use_tdx(self) -> bool:

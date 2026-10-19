@@ -10,7 +10,7 @@
 """
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 
 from .fares import leg_cost
 from .geo import distance_m, walk_minutes
@@ -89,11 +89,21 @@ class Trip:
         return " → ".join(r.line for r in self.rides)
 
     def to_cache(self) -> dict:
-        return asdict(self)
+        """放進 Redis 的內容：不含起點、終點的名稱。Google 餐廳的店名不能存（條款，規格書 3.3），
+        而且同一個地點補完店家資料後名稱會變；名稱在讀出時從記憶體裡的 Place 補上。"""
+        data = asdict(self)
+        del data["from_name"], data["to_name"]
+        return data
 
     @classmethod
-    def from_cache(cls, data: dict) -> Trip:
-        return cls(**{**data, "rides": [Ride(**r) for r in data["rides"]]})
+    def from_cache(cls, data: dict, from_name: str, to_name: str) -> Trip:
+        return cls(**{**data, "from_name": from_name, "to_name": to_name, "rides": [Ride(**r) for r in data["rides"]]})
+
+    def named(self, a: Place, b: Place) -> Trip:
+        """換成這次的起點、終點名稱（快取的路線可能是用同一個地點的舊名稱算的）。"""
+        if (self.from_name, self.to_name) == (a.name, b.name):
+            return self
+        return replace(self, from_name=a.name, to_name=b.name)
 
 
 def _rides(route: Route) -> list[Ride]:
@@ -131,12 +141,13 @@ class Router:
         memo = ("after", a.key, b.key, slot)
         if memo not in self._memo:
             self._memo[memo] = self._cached(a, b, slot)
-        return self._memo[memo]
+        trip = self._memo[memo]
+        return trip.named(a, b) if trip is not None else None
 
     def _cached(self, a: Place, b: Place, slot: int) -> Trip | None:
         key = route_key(self.network_version, a.key, b.key, slot)
         if self.use_cache and (data := get_json(key)) is not None:
-            return Trip.from_cache(data) if data else None
+            return Trip.from_cache(data, a.name, b.name) if data else None
         trip = self._earliest(a, b, slot)
         if self.use_cache:
             set_json(key, trip.to_cache() if trip else {}, ROUTE_TTL_S)  # 沒車也記下來，免得一直重算
@@ -175,5 +186,5 @@ class Router:
                         best = trip
             self._memo[memo] = best
         trip = self._memo[memo]
-        return trip if trip is not None and trip.depart >= not_before else None
+        return trip.named(a, b) if trip is not None and trip.depart >= not_before else None
 

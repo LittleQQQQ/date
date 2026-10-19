@@ -29,11 +29,11 @@ return 0
 
 
 class RedisLock:
-    def __init__(self, key: str, ttl_ms: int, client: redis.Redis | None = None):
-        self.key = key  # 例如 lock:job:refresh_daily、lock:tdx:token
+    def __init__(self, key: str, ttl_ms: int, client: redis.Redis | None = None, token: str | None = None):
+        self.key = key  # 例如 lock:job:refresh_daily、lock:tdx:token、active:plan:{IP}
         self.ttl_ms = ttl_ms
         self.client = client or get_redis()
-        self.token = uuid.uuid4().hex
+        self.token = token or uuid.uuid4().hex  # 鎖的值；active:plan:{IP} 用 job_id
         self._stop = threading.Event()
         self._heartbeat: threading.Thread | None = None
 

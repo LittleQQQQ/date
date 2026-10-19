@@ -52,6 +52,19 @@ def test_routes_are_cached_by_network_version(redis_client):
     assert fresh.fare == 99
 
 
+def test_cache_never_stores_place_names(redis_client):
+    """Google 餐廳的店名不能存進 Redis；同一個地點補完店家資料後改名，路線也要顯示新名稱。"""
+    r = router()
+    placeholder = Place("res9", "（Google 地圖上的餐廳）", MALL.lat, MALL.lng)
+    r.depart_after(HOME, placeholder, to_min("18:07"))
+    assert "from_name" not in get_json(route_key(1, "loc1", "res9", to_min("18:15")))
+    real = Place("res9", "麵屋一燈", MALL.lat, MALL.lng)
+    assert r.depart_after(HOME, real, to_min("18:07")).to_name == "麵屋一燈"  # 同一個 Router 的記憶
+    assert router().depart_after(HOME, real, to_min("18:07")).to_name == "麵屋一燈"  # Redis 快取
+    assert r.arrive_by(HOME, placeholder, to_min("19:00"), 0).to_name == "（Google 地圖上的餐廳）"
+    assert r.arrive_by(HOME, real, to_min("19:00"), 0).to_name == "麵屋一燈"
+
+
 def test_arrive_by_leaves_as_late_as_possible():
     r = router()
     trip = r.arrive_by(HOME, MALL, to_min("19:00"), not_before=to_min("17:00"))

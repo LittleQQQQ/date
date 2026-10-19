@@ -1,6 +1,7 @@
 """規劃工作（規格書 5.6、7.1）：在 RQ worker 的 plans 佇列執行，進度和結果經 Redis Pub/Sub 推回 API。
 
-結果只推送一次、不存（規格書 6.5）；使用者斷線時 API 會取消這個工作（第 7 步）。
+結果只推送一次、不存（規格書 6.5）：排進佇列時 result_ttl=0，RQ 也不保存回傳值。
+使用者斷線時 API 會取消這個工作（plan_stream.py）。
 """
 from __future__ import annotations
 
@@ -8,6 +9,7 @@ import logging
 
 from pydantic import ValidationError
 from rq import get_current_job
+from rq.timeouts import JobTimeoutException
 
 from ..db import SessionLocal
 from ..planner import plan
@@ -19,7 +21,7 @@ log = logging.getLogger(__name__)
 
 
 def run_plan(request: dict, job_id: str | None = None) -> dict | None:
-    """排出方案並推送。回傳值只給測試和 MCP 用（MCP 走同一個佇列，拿 RQ 的結果）。"""
+    """排出方案並推送。回傳值只給測試用（RQ 不保存；API 和 MCP 都從 Pub/Sub 拿結果）。"""
     job_id = job_id or get_current_job().id
     pub = Publisher(job_id)
     try:
@@ -39,6 +41,9 @@ def run_plan(request: dict, job_id: str | None = None) -> dict | None:
     except ValidationError as exc:
         pub.error("VALIDATION_ERROR", "；".join(e["msg"] for e in exc.errors()))
         return {"error": {"code": "VALIDATION_ERROR", "message": str(exc)}}
+    except JobTimeoutException:
+        pub.error("TIMEOUT", "規劃超過時間上限，請稍後再試")
+        raise
     except Exception as exc:  # 外部服務或程式出錯：通知前端後讓 RQ 記成失敗
         log.exception("規劃失敗")
         pub.error("UPSTREAM_ERROR", f"規劃時發生錯誤：{type(exc).__name__}")

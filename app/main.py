@@ -1,17 +1,16 @@
-"""FastAPI 進入點。v2 改寫中：目前只有健康檢查，/api 的其他端點、/mcp、網頁會在第 7～9 步加回來。"""
+"""FastAPI 進入點：/api（規格書第 6 節）。/mcp 和網頁在第 8、9 步加回來。"""
 from __future__ import annotations
 
 from fastapi import FastAPI
-from sqlalchemy import text
+from fastapi.middleware.cors import CORSMiddleware
 
-from .db import engine
+from .api import errors
+from .api.routes import router
+from .config import settings
 
-app = FastAPI(title="約會行程規劃")
-
-
-@app.get("/api/health")
-def health() -> dict:
-    """健康檢查：資料庫連得上，而且 PostGIS 有開。"""
-    with engine.connect() as conn:
-        postgis = conn.execute(text("SELECT postgis_lib_version()")).scalar()
-    return {"status": "ok", "database": "ok", "postgis": postgis}
+app = FastAPI(title="約會行程規劃", version="2.0")
+errors.install(app)
+if settings.cors_origin_list:  # 只允許前端網域（規格書 6.1）；同一個網域就不用開
+    app.add_middleware(CORSMiddleware, allow_origins=settings.cors_origin_list, allow_methods=["GET", "POST"],
+                       allow_headers=["Content-Type"])
+app.include_router(router)
