@@ -1,0 +1,15 @@
+# 不打包進映像：本機環境、資料庫、金鑰、快取、測試與文件
+.git
+.venv
+.env
+.env.*
+!.env.example
+*.db
+data/cache
+tests
+docs
+.superpowers
+.claude
+__pycache__
+**/__pycache__
+.pytest_cache

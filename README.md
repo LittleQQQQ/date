@@ -90,6 +90,54 @@ py -3 -m venv .venv
 
 資料表結構改版時（啟動會提示「資料表結構是舊版的」），執行 `python -m app.ingest --reset` 重建。這會清空資料庫，再重新匯入商圈與交通；影城、場次、餐廳會在伺服器啟動時重新抓。
 
+## 用 Docker 部署
+
+`Dockerfile` 把網站（含 REST API 與 `/mcp`）打包成映像；`docker-compose.yml` 一起啟動網站與 PostgreSQL，LLM（Ollama）選用。需要 Docker Desktop（Windows、macOS）或 Docker Engine（Linux）。
+
+1. 在專案根目錄的 `.env` 設定資料庫密碼（compose 會自動讀這個檔，不會打包進映像）：
+   ```text
+   DB_PASSWORD=自己取一個密碼
+   ```
+   其他選用的值也放這裡：`APP_PORT`（對外的埠，預設 8000）、`ACTIVE_CITIES`（預設桃園市）、`GOOGLE_PLACES_API_KEY`、`OLLAMA_URL`、`JEV_MODE` 等，名稱和「設定（.env）」一節相同。
+2. 建置並啟動：
+   ```bash
+   docker compose up -d --build
+   ```
+3. 第一次啟動時網站會自動建立資料表、匯入商圈與交通，背景更新再去抓開眼場次與 OSM 餐廳（桃園大約 5 分鐘）。看進度：
+   ```bash
+   docker compose logs -f app
+   ```
+   `http://localhost:8000/api/status` 的 `refresh.running` 變成 `null` 就抓完了。
+4. 打開 `http://localhost:8000`。
+
+**要用 LLM**：`.env` 加上 `OLLAMA_URL=http://ollama:11434`，啟動時多帶 `--profile llm`，第一次再下載模型：
+```bash
+docker compose --profile llm up -d --build
+```
+```bash
+docker compose exec ollama ollama pull qwen2.5:3b
+```
+沒有 GPU 的主機跑 LLM 很慢，部署時可以不開（`OLLAMA_URL` 留空）：網頁照常可用，摘要改用範本。
+
+**常用指令**
+
+| 要做什麼 | 指令 |
+|---|---|
+| 更新程式後重建 | `git pull` 之後 `docker compose up -d --build` |
+| 停止（資料保留） | `docker compose down` |
+| 連資料一起刪掉 | `docker compose down -v` |
+| 備份資料庫 | `docker compose exec db pg_dump -U date_planner date_planner > backup.sql` |
+| 資料表結構改版時重建 | `docker compose exec app python -m app.ingest --reset` |
+| 手動補抓 | `docker compose exec app python -m app.ingest --source atmovies`（或 `osm`） |
+
+**注意**
+
+- 只開一個網站容器、一個 worker：背景更新寫在網站程序裡，開多個會同時抓資料。
+- 資料存在 Docker volume（`pgdata`：資料庫；`cache`：爬蟲的網頁快取），`docker compose down` 不會刪，`down -v` 才會。
+- 本機開發用的 `dev.db`（SQLite）不會搬進容器；容器裡的 PostgreSQL 由背景更新重新抓資料。
+- 要讓外面連進來：放到雲端主機時，前面再加一個反向代理（例如 Caddy）處理 HTTPS 與網域；只是暫時展示的話，可以用 Cloudflare Tunnel 把本機的埠開成公開網址。網站目前沒有登入、呼叫頻率限制，MCP 端點也沒有存取權杖，長期公開前要先補上。
+- 開眼、OpenStreetMap 是否會擋雲端主機的連線，要在那台主機上實際跑一次確認。
+
 ## 設定（.env）
 
 | 變數 | 預設 | 說明 |
@@ -215,6 +263,8 @@ data/fixture/      示意資料（每個有商圈的縣市一個檔，另有 交
 frontend/          網頁
 db/init.sql        PostgreSQL 建立帳號與資料庫
 tests/             自動測試
+Dockerfile         網站的映像（見「用 Docker 部署」）
+docker-compose.yml 網站＋PostgreSQL（LLM 選用）
 ```
 
 ## 目前的限制
