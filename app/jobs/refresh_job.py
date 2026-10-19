@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 from ..config import settings
 from ..db import SessionLocal
 from ..ingest import load_network, load_seed, make_collector, run_collector, run_job
+from ..jev.classify import judge_pending
 from ..models import CrawlRun
 from ..redis_utils.lock import RedisLock
 from ..timeutil import TW, now_tw
@@ -40,8 +41,11 @@ def _locked(name: str, work: Callable[[], dict]) -> dict | str:
         lock.release()
 
 
-def _run_sources(names: list[str]) -> dict:
-    """依序執行資料來源，每個來源的結果記在 crawl_runs；一個失敗不影響後面的。"""
+def _run_sources(names: list[str], judge_after: bool = False) -> dict:
+    """依序執行資料來源，每個來源的結果記在 crawl_runs；一個失敗不影響後面的。
+
+    judge_after：抓完再請 Jev 判斷新的（或過期的）電影種類、餐廳類別、所屬區域（規格書 7.2）。
+    """
     results = {}
     with SessionLocal() as session:
         for name in names:
@@ -49,12 +53,23 @@ def _run_sources(names: list[str]) -> dict:
             results[name] = run.status
             if run.status != "success":
                 log.warning("[%s] 更新失敗：%s", name, run.error)
+        if judge_after:
+            results["judge"] = run_job(session, "judge", lambda: judge_pending(session)).status
     return results
 
 
 def refresh_daily() -> dict | str:
-    """每天：開眼場次、OSM 餐廳（規格書 7.2）。"""
-    return _locked("refresh_daily", lambda: _run_sources(["atmovies", "osm"]))
+    """每天：開眼場次、OSM 餐廳，再判斷新資料（規格書 7.2）。"""
+    return _locked("refresh_daily", lambda: _run_sources(["atmovies", "osm"], judge_after=True))
+
+
+def rejudge_and_refresh_geom() -> dict | str:
+    """每天：超過 30 天或 Jev 換版本的判斷重算（規格書 4.5、7.2）。Google 座標更新在第 6 步加上。"""
+    def work() -> dict:
+        with SessionLocal() as session:
+            return {"rejudge": run_job(session, "rejudge", lambda: judge_pending(session)).status}
+
+    return _locked("rejudge_and_refresh_geom", work)
 
 
 def refresh_transit() -> dict | str:
@@ -89,7 +104,10 @@ def due_jobs(session: Session, now: dt.datetime | None = None) -> list[str]:
     return due
 
 
-JOBS: dict[str, Callable[[], dict | str]] = {"refresh_daily": refresh_daily, "refresh_transit": refresh_transit}
+JOBS: dict[str, Callable[[], dict | str]] = {
+    "refresh_daily": refresh_daily, "refresh_transit": refresh_transit,
+    "rejudge_and_refresh_geom": rejudge_and_refresh_geom,
+}
 
 
 def catch_up() -> list[str]:

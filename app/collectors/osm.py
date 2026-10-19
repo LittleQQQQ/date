@@ -232,6 +232,13 @@ def _lat_lng(element: dict) -> tuple[float, float] | None:
     return None
 
 
+def address(tags: dict) -> str:
+    """OSM 標籤組成的地址；沒標就是空字串。"""
+    if full := tags.get("addr:full"):
+        return full
+    return "".join(tags.get(k, "") for k in ("addr:city", "addr:district", "addr:street", "addr:housenumber"))
+
+
 def to_record(element: dict) -> RestaurantRecord | None:
     tags = {k: str(v) for k, v in element.get("tags", {}).items()}
     point = _lat_lng(element)

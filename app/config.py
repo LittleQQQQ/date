@@ -5,6 +5,7 @@ v2 改寫中：每完成一步，再把那一步用到的設定加進來。
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Literal
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -22,6 +23,22 @@ class Settings(BaseSettings):
     database_url: str = DEV_DATABASE_URL
     # Redis（規格書第 5 節）：佇列、鎖、限流、每月額度、快取、進度推播
     redis_url: str = DEV_REDIS_URL
+
+    # Jev（規格書 3.1）：mock = 規則模擬（沒有金鑰時用），api = TypeSafe 正式 API
+    jev_mode: Literal["mock", "api"] = "mock"
+    typesafe_api_key: str = ""
+    jev_model: str = "jev-latest"
+    jev_timeout: float = 10.0
+    # 信心值低於這個值就交給 LLM 備援
+    jev_confidence_threshold: float = 0.6
+    jev_rate_limit_per_minute: int = 300  # 自家上限（官方上限的 1/4），碰到就排隊等
+    jev_monthly_budget_micro_usd: int = 1_000_000  # 每月 1 美元，用完全部交給 LLM 備援
+
+    # Ollama（Jev 沒把握時的備援）。留空 = 不用 LLM
+    ollama_base_url: str = "http://localhost:11434"
+    ollama_model: str = "qwen2.5:3b"
+    # 3B 模型在 CPU 上第一次載入要二、三十秒，太短會一開始就逾時，整批都改不了
+    ollama_timeout: float = 60.0
 
     # 交通部 TDX（規格書 v0.2 3.2）：每週更新台鐵、公車的班表與票價；留空就用路網骨架的估計值
     tdx_client_id: str = ""

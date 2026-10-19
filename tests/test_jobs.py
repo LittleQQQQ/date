@@ -59,7 +59,7 @@ def test_cron_config_fires_at_taiwan_time():
     scheduler = CronScheduler(connection=get_rq_redis())
     scheduler.load_config_from_file("app.jobs.cron_config")
     jobs = {job.name: job for job in scheduler.get_jobs()}
-    assert set(jobs) == {"refresh_daily", "refresh_transit"}
+    assert set(jobs) == {"refresh_daily", "refresh_transit", "rejudge_and_refresh_geom"}
     assert all(job.queue_name == "crawl" for job in jobs.values())
     daily = jobs["refresh_daily"].next_enqueue_time.astimezone(TW)
     weekly = jobs["refresh_transit"].next_enqueue_time.astimezone(TW)
@@ -83,10 +83,10 @@ def test_refresh_daily_runs_each_source_and_records_it(monkeypatch, committed):
     osm = Batch(restaurants=[RestaurantRecord(external_id="node/1", lat=24.962, lng=121.2246, osm_name="店")])
     _fake_sources(monkeypatch, atmovies=FakeCollector("atmovies", error=RuntimeError("網站改版")),
                   osm=FakeCollector("osm", osm))
-    assert refresh_daily() == {"atmovies": "failed", "osm": "success"}  # 一個失敗不影響後面的
+    assert refresh_daily() == {"atmovies": "failed", "osm": "success", "judge": "success"}  # 一個失敗不影響後面的
     with SessionLocal() as s:
         runs = dict(s.execute(select(CrawlRun.job, CrawlRun.status)).all())
-        assert runs == {"atmovies": "failed", "osm": "success"}
+        assert runs == {"atmovies": "failed", "osm": "success", "judge": "success"}
         assert s.scalar(select(func.count()).select_from(Restaurant)) == 1
     assert RedisLock("lock:job:refresh_daily", 1000).acquire()  # 做完有釋放鎖
 

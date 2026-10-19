@@ -9,7 +9,7 @@ from __future__ import annotations
 from rq import cron
 
 from . import CRAWL, CRAWL_TIMEOUT_S
-from .refresh_job import refresh_daily, refresh_transit
+from .refresh_job import refresh_daily, refresh_transit, rejudge_and_refresh_geom
 
 TW_OFFSET_H = 8
 DAYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
@@ -30,7 +30,10 @@ def tw_cron(hour: int, minute: int = 0, weekday: str | None = None) -> str:
 SCHEDULE = {
     "refresh_daily": tw_cron(6),  # 每天 06:00：開眼、OSM
     "refresh_transit": tw_cron(4, weekday="mon"),  # 每週一 04:00：TDX 班表與票價
+    "rejudge_and_refresh_geom": tw_cron(3),  # 每天 03:00：過期的 Jev 判斷重算
 }
 
 cron.register(refresh_daily, CRAWL, cron=SCHEDULE["refresh_daily"], job_timeout=CRAWL_TIMEOUT_S, name="refresh_daily")
 cron.register(refresh_transit, CRAWL, cron=SCHEDULE["refresh_transit"], job_timeout=CRAWL_TIMEOUT_S, name="refresh_transit")
+cron.register(rejudge_and_refresh_geom, CRAWL, cron=SCHEDULE["rejudge_and_refresh_geom"], job_timeout=CRAWL_TIMEOUT_S,
+              name="rejudge_and_refresh_geom")

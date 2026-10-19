@@ -21,6 +21,9 @@ os.environ["REDIS_URL"] = TEST_REDIS_URL
 # .env 裡填了外部服務的金鑰也不要用：測試不連網，也不耗用額度。要測的測試自己設定
 os.environ["TDX_CLIENT_ID"] = ""
 os.environ["TDX_CLIENT_SECRET"] = ""
+os.environ["JEV_MODE"] = "mock"
+os.environ["TYPESAFE_API_KEY"] = ""
+os.environ["OLLAMA_BASE_URL"] = ""  # 不連 LLM；要測備援的測試自己設定
 
 
 @pytest.fixture(scope="session")
