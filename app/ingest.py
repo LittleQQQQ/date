@@ -4,6 +4,7 @@
     python -m app.ingest                      # 預設：商圈與交通（base）
     python -m app.ingest --source atmovies    # 開眼電影網：影城、電影、場次
     python -m app.ingest --source osm         # OpenStreetMap：餐廳
+    python -m app.ingest --source tdx         # 交通部 TDX：台鐵、公車的班次與票價（要在 .env 填金鑰）
     python -m app.ingest --source fixture     # 完整的虛構示意資料（測試用）
     python -m app.ingest --no-jev             # 只匯入，不跑 Jev
     python -m app.ingest --reset              # 資料表結構改過時用：清空並重建所有資料表後再匯入
@@ -25,7 +26,9 @@ from .jev import AUDIO, CUISINE, DATE_FIT, GENRE, MEAL_PACE, SCREEN, JevService
 from .jev.mock import normalize_title
 from .jev.assist import LlmAssist
 from .jev.service import label_subject, movie_context, movie_subject, restaurant_context, restaurant_subject
-from .models import Area, Cinema, Movie, Restaurant, ScrapeRun, Showtime, Station, TransitLink
+from .models import (
+    TDX_SOURCE, Area, Cinema, Movie, Restaurant, ScrapeRun, Showtime, Station, TransitFare, TransitLink,
+)
 from .scope import is_open
 from .timeutil import now_tw, today_tw
 
@@ -53,6 +56,32 @@ def _upsert(session: Session, model: type[T], source: str, record, fetched_at: d
     return row
 
 
+def _link_key(row) -> tuple[str, str, str]:
+    return row.from_station_id, row.to_station_id, row.line
+
+
+def _remove_orphan_fares(session: Session) -> int:
+    """刪掉對不到路段的車資（路段被刪了）。"""
+    links = {_link_key(link) for link in session.scalars(select(TransitLink))}
+    orphans = [fare for fare in session.scalars(select(TransitFare)) if _link_key(fare) not in links]
+    for fare in orphans:
+        session.delete(fare)
+    session.flush()
+    return len(orphans)
+
+
+def _replace_source_links(session: Session, source: str, batch: Batch) -> dict[str, int]:
+    """這批是這個來源的全部路段與車資（TDX）：同來源、這批沒有的刪掉，例如公車路線停駛了。"""
+    keep_links = {_link_key(rec) for rec in batch.transit_links}
+    keep_fares = {_link_key(rec) for rec in batch.transit_fares}
+    links = [l for l in session.scalars(select(TransitLink).where(TransitLink.source == source)) if _link_key(l) not in keep_links]
+    fares = [f for f in session.scalars(select(TransitFare).where(TransitFare.source == source)) if _link_key(f) not in keep_fares]
+    for row in (*links, *fares):
+        session.delete(row)
+    session.flush()
+    return {"stale_transit_links": len(links), "stale_transit_fares": len(fares) + _remove_orphan_fares(session)}
+
+
 def _remove_stale_network(session: Session, batch: Batch) -> dict[str, int]:
     """匯入完整的商圈與交通（base）後，刪掉資料檔裡已經沒有的路段、商圈與車站。
 
@@ -63,13 +92,18 @@ def _remove_stale_network(session: Session, batch: Batch) -> dict[str, int]:
         # data/fixture 被清空或讀不到時，照常刪會把整個路網和爬到的資料全部清掉
         raise ScrapeError("商圈與交通資料是空的（data/fixture 可能被清空），這次不匯入、也不刪除任何資料")
     keep_links = {(l.from_station_id, l.to_station_id, l.line) for l in batch.transit_links}
-    stale_links = [
-        link for link in session.scalars(select(TransitLink))
-        if (link.from_station_id, link.to_station_id, link.line) not in keep_links
-    ]
+    keep_pairs = {(l.from_station_id, l.to_station_id, l.mode) for l in batch.transit_links}
+
+    def stale(link: TransitLink) -> bool:
+        if link.source == TDX_SOURCE:  # TDX 的路段跟著骨架走：骨架拿掉這一段（或車站），TDX 的也刪
+            return (link.from_station_id, link.to_station_id, link.mode) not in keep_pairs
+        return (link.from_station_id, link.to_station_id, link.line) not in keep_links
+
+    stale_links = [link for link in session.scalars(select(TransitLink)) if stale(link)]
     for link in stale_links:
         session.delete(link)
     session.flush()
+    stale_fares = _remove_orphan_fares(session)
 
     stale_areas = list(session.scalars(select(Area.id).where(Area.id.not_in({a.id for a in batch.areas}))))
     cinema_ids = list(session.scalars(select(Cinema.id).where(Cinema.area_id.in_(stale_areas))))
@@ -81,7 +115,8 @@ def _remove_stale_network(session: Session, batch: Batch) -> dict[str, int]:
     areas = session.execute(delete(Area).where(Area.id.in_(stale_areas))).rowcount
     session.flush()
     return {
-        "stale_transit_links": len(stale_links), "stale_showtimes": showtimes, "stale_cinemas": cinemas,
+        "stale_transit_links": len(stale_links), "stale_transit_fares": stale_fares,
+        "stale_showtimes": showtimes, "stale_cinemas": cinemas,
         "stale_restaurants": restaurants, "stale_stations": stations, "stale_areas": areas,
     }
 
@@ -113,9 +148,25 @@ def upsert_batch(session: Session, source: str, batch: Batch) -> dict[str, int]:
         row.source, row.fetched_at = source, now
         session.add(row)
     counts["transit_links"] = len(batch.transit_links)
+    for rec in batch.transit_fares:
+        row = session.scalar(
+            select(TransitFare).where(
+                TransitFare.from_station_id == rec.from_station_id,
+                TransitFare.to_station_id == rec.to_station_id,
+                TransitFare.line == rec.line,
+            )
+        ) or TransitFare()
+        for field, value in rec.model_dump().items():
+            setattr(row, field, value)
+        row.source, row.fetched_at = source, now
+        session.add(row)
+    counts["transit_fares"] = len(batch.transit_fares)
     if batch.replace_network:
         session.flush()
         counts.update(_remove_stale_network(session, batch))
+    if batch.replace_source_links:
+        session.flush()
+        counts.update(_replace_source_links(session, source, batch))
 
     # 影城、餐廳要屬於資料庫裡有的商圈；爬蟲已經篩過，這裡再擋一次
     area_ids = set(session.scalars(select(Area.id)))

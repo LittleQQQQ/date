@@ -210,9 +210,11 @@ function renderStatus(meta, status) {
   const restaurantCredit = google
     ? "Google Maps（查詢失敗時改用 © OpenStreetMap 貢獻者的資料，ODbL）"
     : "© OpenStreetMap 貢獻者（ODbL）";
+  const tdx = meta.data.sources.some((s) => s.source === "tdx");
+  const transitCredit = tdx ? "交通部 TDX（公車車程依站牌距離估計）" : "估計值";
   const credit = meta.data.is_demo
     ? "影城、餐廳、場次與交通班次目前為示意資料，僅供展示流程。"
-    : `電影與場次：開眼電影網・餐廳：${restaurantCredit}・交通：估計值。`;
+    : `電影與場次：開眼電影網・餐廳：${restaurantCredit}・交通：${transitCredit}。`;
   $("#foot").innerHTML = `${counts}${credit}`;
 }
 

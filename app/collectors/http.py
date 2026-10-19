@@ -55,10 +55,10 @@ class Fetcher:
         self.clock = clock
         self._last: dict[str, float] = {}
 
-    def get(self, url: str, cache_days: float = 0) -> str:
+    def get(self, url: str, cache_days: float = 0, headers: dict[str, str] | None = None) -> str:
         if cache_days > 0 and (cached := self._read_cache(url, cache_days)) is not None:
             return cached
-        text = self._request("GET", url)
+        text = self._request("GET", url, headers=headers)
         if cache_days > 0:
             self._write_cache(url, text)
         return text

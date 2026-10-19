@@ -19,10 +19,12 @@ class FakeFetcher:
     def __init__(self, pages: dict[str, PageSource]):
         self.pages = pages
         self.requested: list[str] = []
+        self.headers: list[dict | None] = []
         self.posts: list[dict] = []
         self.forgotten: list[str] = []
 
-    def get(self, url: str, cache_days: float = 0) -> str:
+    def get(self, url: str, cache_days: float = 0, headers: dict[str, str] | None = None) -> str:
+        self.headers.append(headers)
         return self._serve(url, None)
 
     def post(self, url: str, data: dict[str, str]) -> str:

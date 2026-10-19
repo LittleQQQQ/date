@@ -1,6 +1,7 @@
 """背景自動更新爬蟲資料。
 
-- 伺服器啟動後馬上檢查一次：OSM 超過 7 天沒成功更新（或上一次有商圈沒抓到）、開眼今天還沒成功抓過，就在背景執行。
+- 伺服器啟動後馬上檢查一次：OSM 超過 7 天沒成功更新（或上一次有商圈沒抓到）、開眼今天還沒成功抓過、
+  有填 TDX 金鑰而 TDX 超過 7 天沒成功更新，就在背景執行。
 - 之後每天 REFRESH_HOUR 點再檢查一次。
 - 失敗只記錄在 scrape_runs，等下一輪再試；網頁的狀態列會顯示正在更新哪個來源。
 """
@@ -24,7 +25,8 @@ from .timeutil import now_tw
 log = logging.getLogger(__name__)
 
 OSM_MAX_AGE = dt.timedelta(days=7)
-SOURCES = ("osm", "atmovies")  # 先抓餐廳，再抓場次
+TDX_MAX_AGE = dt.timedelta(days=7)  # 公車、台鐵班表很少變；新增路段後急著要，可以手動 python -m app.ingest --source tdx
+SOURCES = ("osm", "atmovies", "tdx")  # 先抓餐廳，再抓場次，最後交通（沒填 TDX 金鑰就不抓）
 
 
 def due_sources(
@@ -39,6 +41,9 @@ def due_sources(
     atmovies = last_success.get("atmovies")
     if atmovies is None or atmovies.date() < now.date():
         due.append("atmovies")
+    tdx = last_success.get("tdx")
+    if settings.use_tdx and (tdx is None or now - tdx >= TDX_MAX_AGE):
+        due.append("tdx")
     return due
 
 
