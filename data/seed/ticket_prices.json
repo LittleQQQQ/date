@@ -1,0 +1,5 @@
+{
+  "_note": "【暫定】影城票價（規格書 4.3 cinemas.ticket_price，待團隊提供）。by_atmovies_id 以開眼的影城代碼指定每人票價（新台幣）；沒列到的影城用 default。",
+  "default": 300,
+  "by_atmovies_id": {}
+}

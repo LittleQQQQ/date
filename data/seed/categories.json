@@ -1,0 +1,23 @@
+{
+  "_note": "【暫定】電影種類、餐廳類別（規格書 4.3 categories，待團隊提供正式清單）。沿用舊版的分類；jev_description 是給 Jev 的選項說明。",
+  "movie_genre": [
+    {"code": "action", "label": "動作", "jev_description": "打鬥、追逐、爆破場面為主的動作片、警匪片、戰爭片"},
+    {"code": "romance", "label": "愛情", "jev_description": "以戀愛關係為主線的愛情片、浪漫喜劇"},
+    {"code": "scifi", "label": "科幻", "jev_description": "未來科技、太空、超能力、超級英雄題材"},
+    {"code": "animation", "label": "動畫", "jev_description": "動畫電影，包括日本動畫、迪士尼與皮克斯動畫"},
+    {"code": "comedy", "label": "喜劇", "jev_description": "以搞笑、輕鬆為主的喜劇片"},
+    {"code": "drama", "label": "劇情", "jev_description": "以人物與故事為主的劇情片、傳記片、文藝片"},
+    {"code": "horror", "label": "恐怖", "jev_description": "恐怖片、驚悚片、懸疑犯罪片"}
+  ],
+  "cuisine": [
+    {"code": "japanese", "label": "日式", "jev_description": "日本料理：拉麵、壽司、丼飯、定食、居酒屋"},
+    {"code": "korean", "label": "韓式", "jev_description": "韓國料理：韓式烤肉、炸雞、拌飯、部隊鍋"},
+    {"code": "taiwanese", "label": "中式／台式", "jev_description": "中式與台式料理：小吃、熱炒、麵食、點心"},
+    {"code": "western", "label": "義式／西式", "jev_description": "義大利麵、披薩、排餐、早午餐等西式料理"},
+    {"code": "american", "label": "美式", "jev_description": "漢堡、炸雞、美式餐廳與速食"},
+    {"code": "southeast_asian", "label": "泰式／南洋", "jev_description": "泰國、越南、印尼、馬來西亞、印度等料理"},
+    {"code": "hotpot_bbq", "label": "火鍋／燒肉", "jev_description": "火鍋、麻辣鍋、涮涮鍋、燒肉"},
+    {"code": "cafe_dessert", "label": "咖啡／甜點", "jev_description": "咖啡廳、甜點店、下午茶"},
+    {"code": "bar", "label": "酒館", "jev_description": "酒吧、餐酒館、居酒屋以喝酒為主的店"}
+  ]
+}

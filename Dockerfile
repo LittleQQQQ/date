@@ -14,7 +14,10 @@ RUN pip install -r requirements.txt
 
 COPY app ./app
 COPY frontend ./frontend
-COPY data/fixture ./data/fixture
+COPY data/network ./data/network
+COPY data/seed ./data/seed
+COPY alembic.ini ./
+COPY migrations ./migrations
 
 EXPOSE 8000
 

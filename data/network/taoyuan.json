@@ -1,0 +1,162 @@
+{
+  "_note": "路網骨架（手寫）：有哪些站、哪兩站之間有車。車程、班距、首末班是估計值，填了 TDX 金鑰後每週由 TDX 更新（app/collectors/tdx.py）。轉自舊版 data/fixture/桃園市.json（2026-10-13）；公車站座標取自 OpenStreetMap。",
+  "stations": [
+    {
+      "code": "tyn-taoyuan",
+      "name": "桃園",
+      "lat": 24.9891,
+      "lng": 121.3135,
+      "transfer_min": 4,
+      "area": "taoyuan"
+    },
+    {
+      "code": "tyn-nanping",
+      "name": "南平中正路口",
+      "lat": 25.018382,
+      "lng": 121.299095,
+      "transfer_min": 2,
+      "area": "taoyuan"
+    },
+    {
+      "code": "tyn-zhongli",
+      "name": "中壢",
+      "lat": 24.9536,
+      "lng": 121.2257,
+      "transfer_min": 4,
+      "area": "zhongli"
+    },
+    {
+      "code": "tyn-sogo",
+      "name": "太平洋SOGO",
+      "lat": 24.962084,
+      "lng": 121.224673,
+      "transfer_min": 2,
+      "area": "zhongli"
+    },
+    {
+      "code": "tyn-dajiang",
+      "name": "大江購物中心",
+      "lat": 25.000812,
+      "lng": 121.229543,
+      "transfer_min": 2,
+      "area": "zhongli"
+    },
+    {
+      "code": "tyn-hsr",
+      "name": "高鐵桃園",
+      "lat": 25.013,
+      "lng": 121.215,
+      "transfer_min": 8,
+      "area": "qingpu"
+    },
+    {
+      "code": "tyn-bade",
+      "name": "八德（介壽大智路口）",
+      "lat": 24.963762,
+      "lng": 121.300255,
+      "transfer_min": 2,
+      "area": "bade"
+    }
+  ],
+  "links": [
+    {
+      "from": "tyn-taoyuan",
+      "to": "tyn-zhongli",
+      "mode": "台鐵",
+      "line": "台鐵縱貫線",
+      "ride": 10,
+      "headway": 15,
+      "first": "05:30",
+      "last": "24:00",
+      "both_ways": true
+    },
+    {
+      "from": "tyn-zhongli",
+      "to": "tyn-hsr",
+      "mode": "公車",
+      "line": "公車（中壢—高鐵桃園）",
+      "ride": 20,
+      "headway": 20,
+      "first": "06:00",
+      "last": "22:30",
+      "both_ways": true
+    },
+    {
+      "from": "tyn-taoyuan",
+      "to": "tyn-hsr",
+      "mode": "公車",
+      "line": "公車（桃園—高鐵桃園）",
+      "ride": 30,
+      "headway": 20,
+      "first": "06:00",
+      "last": "22:30",
+      "both_ways": true
+    },
+    {
+      "from": "tyn-taoyuan",
+      "to": "tyn-nanping",
+      "mode": "公車",
+      "line": "公車（桃園車站—桃知道）",
+      "ride": 15,
+      "headway": 10,
+      "first": "06:00",
+      "last": "23:00",
+      "both_ways": true
+    },
+    {
+      "from": "tyn-zhongli",
+      "to": "tyn-sogo",
+      "mode": "公車",
+      "line": "公車（中壢車站—SOGO）",
+      "ride": 5,
+      "headway": 10,
+      "first": "06:00",
+      "last": "23:00",
+      "both_ways": true
+    },
+    {
+      "from": "tyn-zhongli",
+      "to": "tyn-dajiang",
+      "mode": "公車",
+      "line": "公車（中壢車站—大江）",
+      "ride": 20,
+      "headway": 20,
+      "first": "06:00",
+      "last": "23:00",
+      "both_ways": true
+    },
+    {
+      "from": "tyn-hsr",
+      "to": "tyn-dajiang",
+      "mode": "公車",
+      "line": "公車（高鐵桃園—大江）",
+      "ride": 10,
+      "headway": 20,
+      "first": "06:00",
+      "last": "23:00",
+      "both_ways": true
+    },
+    {
+      "from": "tyn-taoyuan",
+      "to": "tyn-bade",
+      "mode": "公車",
+      "line": "公車（桃園車站—八德）",
+      "ride": 20,
+      "headway": 15,
+      "first": "06:00",
+      "last": "23:00",
+      "both_ways": true
+    },
+    {
+      "from": "tyn-zhongli",
+      "to": "tyn-bade",
+      "mode": "公車",
+      "line": "公車（中壢車站—八德）",
+      "ride": 30,
+      "headway": 20,
+      "first": "06:00",
+      "last": "23:00",
+      "both_ways": true
+    }
+  ]
+}

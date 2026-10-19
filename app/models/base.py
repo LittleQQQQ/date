@@ -3,14 +3,28 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from geoalchemy2 import Geography
-from sqlalchemy import BigInteger, DateTime, Identity, func
+from geoalchemy2 import Geography, Geometry
+from sqlalchemy import BigInteger, DateTime, Identity, cast, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 
 def point() -> Geography:
     """座標：geography(Point, 4326)，距離單位是公尺。空間索引由各表的 __table_args__ 明確建立（GiST）。"""
     return Geography(geometry_type="POINT", srid=4326, spatial_index=False)
+
+
+def point_wkt(lat: float, lng: float) -> str:
+    """寫入座標用的字串。注意 PostGIS 的順序是（經度 緯度）。"""
+    return f"SRID=4326;POINT({lng} {lat})"
+
+
+def lat_of(column):
+    """查詢用：geography 欄位的緯度（ST_Y 只吃 geometry，所以先轉型）。"""
+    return func.ST_Y(cast(column, Geometry))
+
+
+def lng_of(column):
+    return func.ST_X(cast(column, Geometry))
 
 
 class IdMixin:

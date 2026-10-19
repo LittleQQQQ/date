@@ -1,0 +1,18 @@
+{
+  "_note": "【暫定】每個區域的地標（規格書 4.3 locations，待團隊提供正式清單）。先拿路網的車站當地標，座標直接用車站的座標，所以不需要地理編碼；正式清單要有名稱和地址，而且最好在車站 800 公尺內。",
+  "bade": [
+    {"name": "介壽大智路口", "address": "", "station": "tyn-bade"}
+  ],
+  "taoyuan": [
+    {"name": "桃園車站", "address": "", "station": "tyn-taoyuan"},
+    {"name": "南平中正路口", "address": "", "station": "tyn-nanping"}
+  ],
+  "zhongli": [
+    {"name": "中壢車站", "address": "", "station": "tyn-zhongli"},
+    {"name": "太平洋SOGO 中壢店", "address": "", "station": "tyn-sogo"},
+    {"name": "大江購物中心", "address": "", "station": "tyn-dajiang"}
+  ],
+  "qingpu": [
+    {"name": "高鐵桃園站", "address": "", "station": "tyn-hsr"}
+  ]
+}
