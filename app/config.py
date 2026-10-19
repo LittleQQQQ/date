@@ -51,6 +51,9 @@ class Settings(BaseSettings):
     cors_origins: str = ""
     api_read_limit_per_minute: int = 60  # 每個 IP 每 60 秒的查詢次數
     api_plan_limit_per_hour: int = 10  # 每個 IP 每小時送出規劃的次數
+    # MCP（規格書 6.7）：對外的網域，多個用逗號分開，例如 date.example.com。
+    # SDK 預設只接受 localhost 的 Host（防 DNS rebinding），放到公開網址時要加上
+    mcp_allowed_hosts: str = ""
 
     # 交通部 TDX（規格書 v0.2 3.2）：每週更新台鐵、公車的班表與票價；留空就用路網骨架的估計值
     tdx_client_id: str = ""
@@ -59,6 +62,10 @@ class Settings(BaseSettings):
     @property
     def cors_origin_list(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
+
+    @property
+    def mcp_allowed_host_list(self) -> list[str]:
+        return [h.strip() for h in self.mcp_allowed_hosts.split(",") if h.strip()]
 
     @property
     def use_tdx(self) -> bool:

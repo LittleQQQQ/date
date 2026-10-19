@@ -14,7 +14,6 @@
 from __future__ import annotations
 
 import json
-import math
 import time
 from collections.abc import AsyncIterator
 
@@ -27,11 +26,10 @@ from sqlalchemy.orm import Session
 from starlette.concurrency import run_in_threadpool
 
 from .. import services
-from ..config import settings
 from ..db import SessionLocal, engine, get_session
 from ..plan_stream import PlanRun
+from ..limits import read_retry_after
 from ..redis_utils import get_redis
-from ..redis_utils.ratelimit import SlidingWindow
 from ..schemas import PlanRequest
 from .errors import APIError
 
@@ -46,10 +44,8 @@ def client_ip(request: Request) -> str:
 
 
 def read_limit(request: Request) -> None:
-    decision = SlidingWindow(f"rl:api:read:{client_ip(request)}", settings.api_read_limit_per_minute, 60).try_acquire()
-    if not decision.allowed:
-        raise APIError(429, "RATE_LIMITED", "查詢太頻繁，請稍後再試",
-                       {"Retry-After": str(max(1, math.ceil(decision.retry_after_ms / 1000)))})
+    if (retry := read_retry_after(client_ip(request))) is not None:
+        raise APIError(429, "RATE_LIMITED", "查詢太頻繁，請稍後再試", {"Retry-After": str(retry)})
 
 
 @router.get("/areas", dependencies=[Depends(read_limit)])
@@ -94,7 +90,8 @@ def sse(event: str, data: dict) -> str:
     return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
 
 
-def _check(req: PlanRequest) -> None:
+def check_plan(req: PlanRequest) -> None:
+    """排進佇列前先檢查和資料庫有關的規則（MCP 的 plan_date 也用）。"""
     with SessionLocal() as session:
         services.check_plan_request(session, req)
 
@@ -126,7 +123,7 @@ async def create_plan(req: PlanRequest, request: Request) -> StreamingResponse:
     輸入不合法、地標不存在在排進佇列前就回 400／404；該區沒有場次資料時串流只有一個 NO_SHOWTIMES 的 error。
     """
     try:
-        await run_in_threadpool(_check, req)
+        await run_in_threadpool(check_plan, req)
     except services.PlanError as exc:
         if exc.code != "NO_SHOWTIMES":
             raise
