@@ -8,7 +8,7 @@
 > 2. 複製 `.env.example` 為 `.env`，`DATABASE_URL` 已經是開發環境的網址。
 > 3. `alembic upgrade head`：建立資料表。改了 `app/models/` 之後用 `alembic revision --autogenerate -m "說明"` 產生新的 migration。
 > 4. 匯入資料（依序）：`python -m app.ingest network`（路網骨架）→ `seed`（【暫定】類別、地標、票價）→ `atmovies`（開眼場次，約幾分鐘）→ `osm`（餐廳）→ `tdx`（要在 `.env` 填 TDX 金鑰）。每次執行都記在 `crawl_runs`。
-> 5. 測試：`python -m pytest`（會用 `date_v2_test` 資料庫，每次從頭建立）。
+> 5. 測試：`python -m pytest`（會用 `date_v2_test` 資料庫，每次從頭建立；Redis 用第 15 號資料庫，每個測試前後清空）。
 
 用下拉式選單選好縣市、商圈、出發站、日期、想看的片、幾點前到家、想吃什麼，
 系統排出「電影 ＋ 餐廳 ＋ 大眾運輸」的完整時間軸。**看哪部片、吃哪一家、去程回程搭什麼由 Jev 決定**，結果是 Jev 的前三名組合。

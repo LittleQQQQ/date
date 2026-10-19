@@ -12,6 +12,9 @@ from app.ingest import load_network, make_collector, run_collector
 from app.models import TransitFare, TransitLink
 from app.timeutil import hhmm, to_min
 
+# 抓取時會用到 Redis：TDX token 共用、每分鐘 5 次的限流
+pytestmark = pytest.mark.usefixtures("redis_client")
+
 DAY = dt.date(2026, 10, 16)
 ALL_DAYS = {d: 1 for d in tdx.WEEKDAYS}
 WEEKDAYS_ONLY = ALL_DAYS | {"Saturday": 0, "Sunday": 0}

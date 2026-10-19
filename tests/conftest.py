@@ -14,8 +14,10 @@ ROOT = Path(__file__).resolve().parent.parent
 TEST_DATABASE_URL = os.environ.get(
     "TEST_DATABASE_URL", "postgresql+psycopg://date_planner:dev_only@localhost:5433/date_v2_test"
 )
+TEST_REDIS_URL = os.environ.get("TEST_REDIS_URL", "redis://localhost:6380/15")  # 和開發用的 0 號分開
 # 必須在 import app 之前設定：app.db 一載入就會用這個網址建立連線
 os.environ["DATABASE_URL"] = TEST_DATABASE_URL
+os.environ["REDIS_URL"] = TEST_REDIS_URL
 # .env 裡填了外部服務的金鑰也不要用：測試不連網，也不耗用額度。要測的測試自己設定
 os.environ["TDX_CLIENT_ID"] = ""
 os.environ["TDX_CLIENT_SECRET"] = ""
@@ -44,6 +46,22 @@ def database():
     command.upgrade(cfg, "head")
     yield engine
     engine.dispose()
+
+
+@pytest.fixture
+def redis_client():
+    """測試用的 Redis（compose.dev.yml 的第 15 號資料庫），每個測試前後都清空。"""
+    import redis
+
+    from app.redis_utils import get_redis
+
+    client = get_redis()
+    try:
+        client.flushdb()
+    except redis.exceptions.ConnectionError as exc:
+        pytest.exit(f"連不上測試用的 Redis（{exc}）。請先執行：docker compose -f compose.dev.yml up -d --wait", returncode=2)
+    yield client
+    client.flushdb()
 
 
 @pytest.fixture

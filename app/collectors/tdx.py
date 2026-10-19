@@ -17,16 +17,22 @@ from __future__ import annotations
 import datetime as dt
 import json
 import statistics
+import time
 from collections import Counter, defaultdict
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from urllib.parse import quote
 
+import redis
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..config import settings
 from ..geo import distance_m
 from ..models import Station, TransitLink, lat_of, lng_of
+from ..redis_utils import get_redis
+from ..redis_utils.lock import RedisLock
+from ..redis_utils.ratelimit import tdx_limiter
 from ..timeutil import today_tw
 from .base import Batch, Collector, FareRecord, LinkRecord, ScrapeError
 from .http import Fetcher, FetchError
@@ -295,6 +301,35 @@ def bus_fare(candidates: list[BusCandidate], index: dict[tuple, int], free: set[
     return max(prices, key=lambda p: (counts[p], p))
 
 
+# ---------- token 共用（規格書 5.3 A1） ----------
+
+TOKEN_KEY = "tdx:access_token"
+TOKEN_LOCK = "lock:tdx:token"
+TOKEN_MARGIN_S = 5 * 60  # 比 TDX 給的有效期限早 5 分鐘過期，免得用到剛好過期的 token
+TOKEN_WAIT_S = 30
+
+
+def shared_token(request: Callable[[], tuple[str, int]], client: redis.Redis,
+                 sleep: Callable[[float], None] = time.sleep) -> str:
+    """先讀 Redis；沒有就搶 lock:tdx:token，搶到的去換新 token 寫回，沒搶到的等 1 秒再讀。
+
+    換 token 的端點每個 IP 每分鐘最多 20 次，多個實例同時啟動時不能每個都去換。
+    """
+    for _ in range(TOKEN_WAIT_S):
+        if token := client.get(TOKEN_KEY):
+            return token
+        lock = RedisLock(TOKEN_LOCK, 30_000, client)
+        if lock.acquire():
+            try:
+                token, expires_in = request()
+                client.set(TOKEN_KEY, token, ex=max(60, expires_in - TOKEN_MARGIN_S))
+                return token
+            finally:
+                lock.release()
+        sleep(1)
+    raise ScrapeError(f"等了 {TOKEN_WAIT_S} 秒還拿不到 TDX token")
+
+
 # ---------- 資料來源 ----------
 
 
@@ -308,12 +343,15 @@ class TdxCollector(Collector):
         client_id: str | None = None,
         client_secret: str | None = None,
         today: dt.date | None = None,
+        redis_client: redis.Redis | None = None,
     ):
         self.network = network
         self.fetcher = fetcher or Fetcher(cache_dir=None, min_interval=MIN_INTERVAL, timeout=120, backoff=30)
         self.client_id = settings.tdx_client_id if client_id is None else client_id
         self.client_secret = settings.tdx_client_secret if client_secret is None else client_secret
         self.today = today
+        self.redis = redis_client or get_redis()
+        self.limiter = tdx_limiter(self.redis)  # 所有程式實例共用每分鐘 5 次
         self._headers: dict[str, str] = {}
 
     @classmethod
@@ -339,13 +377,18 @@ class TdxCollector(Collector):
         return Batch(links=links, fares=fares, replace_tdx=True, stats=dict(stats))
 
     def _login(self) -> None:
+        self._headers = {"authorization": f"Bearer {shared_token(self._request_token, self.redis)}"}
+
+    def _request_token(self) -> tuple[str, int]:
         text = self.fetcher.post(AUTH_URL, {
             "grant_type": "client_credentials", "client_id": self.client_id.strip(),
             "client_secret": self.client_secret.strip(),
         })
-        self._headers = {"authorization": f"Bearer {json.loads(text)['access_token']}"}
+        data = json.loads(text)
+        return data["access_token"], int(data.get("expires_in", 86400))
 
     def _get(self, path: str):
+        self.limiter.wait()  # 碰到每分鐘 5 次的上限就排隊等（規格書 5.5）
         return json.loads(self.fetcher.get(API_URL + path, headers=self._headers))
 
     def _link(self, link: NetLink, line: str, ride: int, timing: tuple[int, int, int]) -> LinkRecord:

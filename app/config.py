@@ -10,8 +10,9 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
 
-# compose.dev.yml 開發環境的資料庫；正式環境一定要用 .env 的 DATABASE_URL 蓋掉
+# compose.dev.yml 開發環境的資料庫與 Redis；正式環境一定要用 .env 蓋掉
 DEV_DATABASE_URL = "postgresql+psycopg://date_planner:dev_only@localhost:5433/date_v2"
+DEV_REDIS_URL = "redis://localhost:6380/0"
 
 
 class Settings(BaseSettings):
@@ -19,6 +20,8 @@ class Settings(BaseSettings):
 
     # 只用 PostgreSQL ＋ PostGIS（規格書 4.1）。驅動程式 psycopg 3，同一個網址給同步與非同步共用
     database_url: str = DEV_DATABASE_URL
+    # Redis（規格書第 5 節）：佇列、鎖、限流、每月額度、快取、進度推播
+    redis_url: str = DEV_REDIS_URL
 
     # 交通部 TDX（規格書 v0.2 3.2）：每週更新台鐵、公車的班表與票價；留空就用路網骨架的估計值
     tdx_client_id: str = ""
