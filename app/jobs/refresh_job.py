@@ -15,6 +15,9 @@ from sqlalchemy.orm import Session
 from ..config import settings
 from ..db import SessionLocal
 from ..ingest import load_network, load_seed, make_collector, run_collector, run_job
+from .. import google_sync
+from ..collectors.google_places import use_google
+from ..google_sync import refresh_google_geoms
 from ..jev.classify import judge_pending
 from ..models import CrawlRun
 from ..redis_utils.lock import RedisLock
@@ -64,12 +67,28 @@ def refresh_daily() -> dict | str:
 
 
 def rejudge_and_refresh_geom() -> dict | str:
-    """每天：超過 30 天或 Jev 換版本的判斷重算（規格書 4.5、7.2）。Google 座標更新在第 6 步加上。"""
+    """每天：超過 30 天或 Jev 換版本的判斷重算；有 Google 金鑰時，座標超過 25 天的 Google 餐廳更新座標（規格書 4.5、7.2）。"""
     def work() -> dict:
         with SessionLocal() as session:
-            return {"rejudge": run_job(session, "rejudge", lambda: judge_pending(session)).status}
+            results = {"rejudge": run_job(session, "rejudge", lambda: judge_pending(session)).status}
+            if use_google():
+                results["geom_refresh"] = run_job(session, "geom_refresh", lambda: refresh_google_geoms(session)).status
+            return results
 
     return _locked("rejudge_and_refresh_geom", work)
+
+
+def refresh_google_places() -> dict | str:
+    """每週：Google Nearby Search 找餐廳（存 place_id 和座標），新的請 Jev 判斷。沒填金鑰就跳過。"""
+    if not use_google():
+        log.info("[refresh_google_places] 沒有設定 Google 金鑰，跳過")
+        return SKIPPED
+
+    def work() -> dict:
+        with SessionLocal() as session:
+            return {"google_nearby": run_job(session, "google_nearby", lambda: google_sync.refresh_google_places(session)).status}
+
+    return _locked("refresh_google_places", work)
 
 
 def refresh_transit() -> dict | str:
@@ -106,7 +125,7 @@ def due_jobs(session: Session, now: dt.datetime | None = None) -> list[str]:
 
 JOBS: dict[str, Callable[[], dict | str]] = {
     "refresh_daily": refresh_daily, "refresh_transit": refresh_transit,
-    "rejudge_and_refresh_geom": rejudge_and_refresh_geom,
+    "rejudge_and_refresh_geom": rejudge_and_refresh_geom, "refresh_google_places": refresh_google_places,
 }
 
 

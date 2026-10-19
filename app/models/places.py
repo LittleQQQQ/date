@@ -62,13 +62,15 @@ class Restaurant(IdMixin, TimestampMixin, Base):
             "source <> 'google' OR (osm_name IS NULL AND osm_opening_hours IS NULL AND osm_tags IS NULL)",
             name="google_stores_no_content",
         ),
+        CheckConstraint("source <> 'osm' OR geom IS NOT NULL", name="osm_has_geom"),
         Index("ix_restaurants_geom", "geom", postgresql_using="gist"),
         Index(None, "area_id", "category_code"),
     )
 
     source: Mapped[str] = mapped_column(Text)  # google 或 osm
     external_id: Mapped[str] = mapped_column(Text)  # Google 是 place_id，OSM 是 node/123 這類格式
-    geom = mapped_column(point(), nullable=False)
+    # Google 的座標最多存 30 天：更新不到就清掉、設為無效（規格書 4.5），所以可以是 null；OSM 來源一定有
+    geom = mapped_column(point(), nullable=True)
     geom_fetched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))  # Google 座標要在 30 天內更新
     area_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("areas.id"))  # Jev 判斷
     category_code: Mapped[str | None] = mapped_column(Text)  # Jev 判斷，對應 categories

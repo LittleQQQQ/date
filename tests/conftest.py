@@ -23,6 +23,7 @@ os.environ["TDX_CLIENT_ID"] = ""
 os.environ["TDX_CLIENT_SECRET"] = ""
 os.environ["JEV_MODE"] = "mock"
 os.environ["TYPESAFE_API_KEY"] = ""
+os.environ["GOOGLE_PLACES_API_KEY"] = ""
 os.environ["OLLAMA_BASE_URL"] = ""  # 不連 LLM；要測備援的測試自己設定
 
 

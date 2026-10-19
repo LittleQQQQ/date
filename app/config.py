@@ -40,6 +40,13 @@ class Settings(BaseSettings):
     # 3B 模型在 CPU 上第一次載入要二、三十秒，太短會一開始就逾時，整批都改不了
     ollama_timeout: float = 60.0
 
+    # Google Places API (New)（規格書 3.3）。留空 = 不用 Google，餐廳只用 OSM
+    google_places_api_key: str = ""
+    # 自家的每月上限：各 SKU 的免費額度留 5% 邊際（規格書 5.5）
+    google_nearby_monthly_limit: int = 4750  # Nearby Search Pro（每週找餐廳）
+    google_details_monthly_limit: int = 950  # Place Details Enterprise（規劃時補店家資料）；用完就改用 OSM
+    google_location_monthly_limit: int = 9500  # Place Details Essentials（每 25 天更新座標）
+
     # 交通部 TDX（規格書 v0.2 3.2）：每週更新台鐵、公車的班表與票價；留空就用路網骨架的估計值
     tdx_client_id: str = ""
     tdx_client_secret: str = ""

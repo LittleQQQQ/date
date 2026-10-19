@@ -8,7 +8,7 @@
 什麼時候要（重新）判斷：還沒判斷過、判斷超過 30 天、或由 Jev 判斷但 Jev 的版本換了。
 Jev 沒把握、LLM 也沒幫上忙（沒開、逾時、說無法判斷）的答案照樣存（資料才能用），但隔天就再判斷一次，
 不要讓一次 LLM 不能用，就把沒把握的答案留一個月。Jev 和 LLM 都沒結果的，這次不存，下次再判斷。
-Google 來源的餐廳（第 6 步）要用 Place Details 補店名，資料只放記憶體，這裡先只處理 OSM 來源。
+Google 來源的餐廳店名不能存，在每週找餐廳時（資料還在記憶體裡）由 judge_google_restaurants 判斷。
 """
 from __future__ import annotations
 
@@ -137,10 +137,7 @@ def judge_pending(session: Session, jev=None, limit: int | None = None,
             select(Restaurant, lat_of(Restaurant.geom), lng_of(Restaurant.geom)).where(Restaurant.id.in_(ids))
         ):
             tags = rest.osm_tags or {}
-            state = (
-                f"店名：{rest.osm_name}\n介紹：{describe(tags, cuisine_category(tags))}\n"
-                f"地址：{address(tags) or '（沒有地址）'}\n{_nearest_line(coverage, area_names, lat, lng)}"
-            )
+            state = restaurant_state(rest.osm_name or "", tags, address(tags), coverage, area_names, lat, lng)
             saved = record("restaurant", rest.id, judge(state, [cuisine_q, area_q], jev))
             if "cuisine" in saved:
                 rest.category_code = saved["cuisine"]
@@ -148,5 +145,55 @@ def judge_pending(session: Session, jev=None, limit: int | None = None,
                 rest.area_id = area_ids.get(saved["area"]) if saved["area"] != NONE else None
             stats["restaurants"] += 1
 
+    session.flush()
+    return dict(stats)
+
+
+def restaurant_state(name: str, tags: dict, addr: str, coverage: Coverage, area_names: dict[str, str],
+                     lat: float, lng: float) -> str:
+    """給 Jev 判斷餐廳類別、區域的文字（OSM、Google 共用）。Google 的店名只在記憶體裡，不存。"""
+    return (
+        f"店名：{name}\n介紹：{describe(tags, cuisine_category(tags))}\n"
+        f"地址：{addr or '（沒有地址）'}\n{_nearest_line(coverage, area_names, lat, lng)}"
+    )
+
+
+def judge_google_restaurants(session: Session, places: dict[int, dict], jev=None,
+                             retry_unsure_after: dt.timedelta = RETRY_UNSURE_AFTER) -> dict:
+    """Google 來源的餐廳：places 是 restaurant id → 這次 Nearby Search 拿到的資料（只在記憶體裡）。
+
+    Google 的店名不能存，所以只能在每週找餐廳的時候、資料還在記憶體裡時判斷；需要（重新）判斷的才問。
+    """
+    from ..collectors.google_places import name_of, to_tags
+
+    jev = jev or get_jev()
+    model = model_name(jev)
+    stats: Counter = Counter()
+    cuisines = [tuple(r) for r in session.execute(
+        select(Category.code, Category.label, Category.jev_description).where(Category.kind == "cuisine").order_by(Category.sort_order))]
+    areas = [(code, name) for code, name in session.execute(select(Area.code, Area.name).order_by(Area.id))]
+    if not cuisines or not places:
+        return {}
+    area_ids, area_names, coverage = dict(session.execute(select(Area.code, Area.id)).all()), dict(areas), load_coverage(session)
+    questions = [cuisine_question(cuisines), area_question(areas)]
+    ids = list(places)
+    stale = set(_stale(session, "restaurant", "cuisine", ids, model, retry_unsure_after)) | set(
+        _stale(session, "restaurant", "area", ids, model, retry_unsure_after))
+    for rest in session.scalars(select(Restaurant).where(Restaurant.id.in_(sorted(stale)))):
+        place = places[rest.id]
+        loc = place["location"]
+        state = restaurant_state(name_of(place), to_tags(place), place.get("formattedAddress", ""), coverage, area_names,
+                                 loc["latitude"], loc["longitude"])
+        for qid, answer in judge(state, questions, jev).items():
+            if answer is None:
+                stats["failed"] += 1
+                continue
+            _save(session, "restaurant", rest.id, answer)
+            stats[f"by_{answer.decided_by}"] += 1
+            if qid == "cuisine":
+                rest.category_code = answer.choice
+            else:
+                rest.area_id = area_ids.get(answer.choice) if answer.choice != NONE else None
+        stats["restaurants"] += 1
     session.flush()
     return dict(stats)

@@ -59,6 +59,16 @@ def test_google_restaurants_cannot_store_shop_content(session):
             session.flush()
 
 
+def test_only_google_restaurants_may_lose_their_coordinates(session):
+    """Google 的座標最多存 30 天，更新不到就清掉；OSM 的座標一定要有。"""
+    session.add(Restaurant(source="google", external_id="ChIJ-expired", geom=None, is_active=False))
+    session.flush()
+    with pytest.raises(IntegrityError, match="osm_has_geom"):
+        with session.begin_nested():
+            session.add(Restaurant(source="osm", external_id="node/2", geom=None, osm_name="沒有座標"))
+            session.flush()
+
+
 def test_postgis_finds_restaurants_within_walking_distance(session):
     zhongli = session.scalar(select(Area.id).where(Area.code == "zhongli"))
     cinema = Cinema(atmovies_id="t03a01", name="威尼斯影城", geom=CINEMA_AT, area_id=zhongli)

@@ -25,6 +25,8 @@ from .timeutil import TW, hhmm
 ARRIVE_BEFORE_SHOW = 15  # 開演前幾分鐘到影城【預設】
 MEAL_MIN = 90  # 用餐時間【預設】
 CANDIDATES = 5  # 取幾個候選問 Jev【預設】
+# 一次規劃最多查幾家 Google 餐廳的店家資料（Enterprise 每月 950 次，平均一次規劃 5 次約 190 次規劃）【預設】
+MAX_DETAILS_PER_PLAN = CANDIDATES * 2
 
 Progress = Callable[[str, int, int], None]
 
@@ -53,6 +55,8 @@ class Eatery:
     price_per_person: int  # 估計
     price_level: str  # INEXPENSIVE、MODERATE、EXPENSIVE、VERY_EXPENSIVE
     address: str = ""
+    external_id: str = ""  # Google 的 place_id（補店家資料用）
+    enriched: bool = False  # Google 餐廳是不是已經補過店家資料
 
 
 @dataclass
@@ -68,6 +72,8 @@ class PlanContext:
     eateries: list[Eatery]
     router: Router
     restaurant_source: str = "osm"
+    # Google 餐廳要補店家資料（Place Details）；查不到回傳 None，這個候選就不用
+    enrich: Callable[[Eatery], Eatery | None] | None = None
 
 
 @dataclass
@@ -167,24 +173,53 @@ def build_candidates(ctx: PlanContext, progress: Progress | None = None) -> tupl
             except Reject as exc:
                 rejected[str(exc)] = rejected.get(str(exc), 0) + 1
     found.sort(key=lambda c: (c.idle, c.end, c.show.id, c.eatery.id))
-    return _pick_varied(found), rejected
+    return _pick_varied(found, _acceptor(ctx, build, progress)), rejected
 
 
-def _pick_varied(found: list[Candidate]) -> list[Candidate]:
+def _acceptor(ctx: PlanContext, build, progress: Progress | None) -> Callable[[Candidate], Candidate | None]:
+    """挑候選時檢查一次：Google 餐廳先補店家資料（規格書 7.1 第 4 步），用真的營業時間重新排；接不上就不用。"""
+    details: dict[int, Eatery | None] = {}
+
+    def accept(c: Candidate) -> Candidate | None:
+        e = c.eatery
+        if e.source != "google" or e.enriched:
+            return c
+        if ctx.enrich is None:
+            return None
+        if e.id not in details:
+            if len(details) >= MAX_DETAILS_PER_PLAN:  # 查太多家都接不上：剩下的 Google 餐廳不查了，省額度
+                return None
+            if progress:
+                progress("fetching_places", len(details), CANDIDATES)
+            details[e.id] = ctx.enrich(e)
+        enriched = details[e.id]
+        if enriched is None or enriched.open is None:
+            return None
+        try:
+            return build(ctx, c.show, enriched)
+        except Reject:
+            return None
+
+    return accept
+
+
+def _pick_varied(found: list[Candidate], accept: Callable[[Candidate], Candidate | None]) -> list[Candidate]:
     picked: list[Candidate] = []
+    used: set[tuple[int, int]] = set()
     shows, eateries = set(), set()
-    for c in found:  # 先挑場次、餐廳都還沒出現過的
-        if len(picked) == CANDIDATES:
-            return picked
-        if c.show.id not in shows and c.eatery.id not in eateries:
-            picked.append(c)
+    for distinct in (True, False):  # 先挑場次、餐廳都還沒出現過的，不夠再依空檔補
+        for c in found:
+            if len(picked) == CANDIDATES:
+                return picked
+            key = (c.show.id, c.eatery.id)
+            if key in used or (distinct and (c.show.id in shows or c.eatery.id in eateries)):
+                continue
+            used.add(key)
+            if (ok := accept(c)) is None:
+                continue
+            picked.append(ok)
             shows.add(c.show.id)
             eateries.add(c.eatery.id)
-    for c in found:  # 不夠再依空檔補
-        if len(picked) == CANDIDATES:
-            break
-        if c not in picked:
-            picked.append(c)
     return picked
 
 
@@ -295,6 +330,7 @@ def plan_dict(ctx: PlanContext, c: Candidate, rank: int) -> dict:
     }
     meal = {
         "type": "meal", "name": e.place.name, "address": e.address, "source": e.source,
+        "attribution": "Google Maps" if e.source == "google" else "© OpenStreetMap 貢獻者",
         "opening_hours_today": e.hours_text, "hours_estimated": e.hours_estimated,
         "price_level": e.price_level, "price_per_person_estimate": e.price_per_person,
         "arrive_at": at(day, c.middle.arrive if ctx.order == "movie_first" else c.go.arrive),

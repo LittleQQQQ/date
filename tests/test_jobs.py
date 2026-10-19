@@ -48,7 +48,7 @@ def test_cron_config_fires_at_taiwan_time():
     scheduler = CronScheduler(connection=get_rq_redis())
     scheduler.load_config_from_file("app.jobs.cron_config")
     jobs = {job.name: job for job in scheduler.get_jobs()}
-    assert set(jobs) == {"refresh_daily", "refresh_transit", "rejudge_and_refresh_geom"}
+    assert set(jobs) == {"refresh_daily", "refresh_transit", "rejudge_and_refresh_geom", "refresh_google_places"}
     assert all(job.queue_name == "crawl" for job in jobs.values())
     daily = jobs["refresh_daily"].next_enqueue_time.astimezone(TW)
     weekly = jobs["refresh_transit"].next_enqueue_time.astimezone(TW)

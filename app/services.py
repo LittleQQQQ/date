@@ -9,7 +9,9 @@ import datetime as dt
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from .collectors.google_places import GooglePlaces, use_google
 from .collectors.osm import address, cuisine_category, estimate_price, place_hours
+from .google_sync import google_eatery, make_enricher
 from .models import (
     Area, Cinema, CrawlRun, Location, Movie, Restaurant, Showtime, Station, TransitFare, TransitLink, lat_of, lng_of,
 )
@@ -141,15 +143,27 @@ def load_plan_context(session: Session, req: PlanRequest, now: dt.datetime | Non
         for st, movie, cin, lat, lng in session.execute(query)
     ]
 
+    # Google 的 Enterprise 額度用完（或沒填金鑰）就只讀 OSM 的餐廳（規格書 7.1 第 1 步）
+    google = google_client() if use_google() else None
+    sources = ["osm", "google"] if google is not None and google.details_quota.remaining() > 0 else ["osm"]
     rq = select(Restaurant, lat_of(Restaurant.geom), lng_of(Restaurant.geom)).where(
-        Restaurant.area_id == area.id, Restaurant.is_active, Restaurant.source == "osm")
+        Restaurant.area_id == area.id, Restaurant.is_active, Restaurant.geom.is_not(None), Restaurant.source.in_(sources))
     if req.cuisine:
         rq = rq.where(Restaurant.category_code == req.cuisine)
-    eateries = [osm_eatery(r, lat, lng, day) for r, lat, lng in session.execute(rq.order_by(Restaurant.id))]
+    eateries = [
+        osm_eatery(r, lat, lng, day) if r.source == "osm" else google_eatery(r, lat, lng)
+        for r, lat, lng in session.execute(rq.order_by(Restaurant.id))
+    ]
+    has_google = any(e.source == "google" for e in eateries)
 
     return PlanContext(
         day=day, depart=_minutes(day, depart_at), origin=origin, destination=destination, order=req.order,
         party_size=req.party_size, budget_total=req.budget_total, showtimes=showtimes, eateries=eateries,
-        router=load_router(session), restaurant_source="osm",
+        router=load_router(session), restaurant_source="google" if has_google else "osm",
+        enrich=make_enricher(google, day) if has_google else None,
     )
+
+
+def google_client() -> GooglePlaces:
+    return GooglePlaces()
 
