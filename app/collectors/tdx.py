@@ -2,7 +2,7 @@
 
 手寫的 data/network/ 是路網骨架（有哪些站、哪兩站之間有車）。這裡替骨架裡的台鐵、公車路段找真實資料，
 存成 source = tdx 的路段與車資；排程時同一段、同一種交通方式以 TDX 為準，找不到資料的路段沿用手寫估計值。
-規劃時不呼叫 TDX：每週由 refresh_transit 工作抓一次（第 4 步接上排程）。
+規劃時不呼叫 TDX：每週由 refresh_transit 工作抓一次。
 
 - 台鐵：當天所有列車（所有車種）的時刻，算出兩站之間的車程（中位數）、首末班、最長班距；票價用區間車成人票。
 - 公車：TDX 只有起點站的發車時刻，桃園也沒有站間車程（S2STravelTime），所以車程依站牌之間的距離估計（BUS_KMH）；
@@ -11,6 +11,8 @@
 - 平日、假日的公車班表不同，首末班與班距取一週裡最保守的（最晚的首班、最早的末班、最長的班距）。
 - 捷運、高鐵還沒接，沿用估計值。路網只有桃園市，公車都查桃園市的資料。
 - 免費方案每把金鑰每分鐘最多呼叫 5 次，所以每次請求間隔 MIN_INTERVAL 秒；更新一次約 5 次呼叫。
+- 每月點數（quota:tdx_points，規格書 5.5）：這裡只用基礎 API，每次 2 點，呼叫成功才計。點數不夠就整批不更新，
+  路網保留上次的資料。換 token 不算點數。
 """
 from __future__ import annotations
 
@@ -32,6 +34,7 @@ from ..geo import distance_m
 from ..models import Station, TransitLink, lat_of, lng_of
 from ..redis_utils import get_redis
 from ..redis_utils.lock import RedisLock
+from ..redis_utils.quota import MonthlyQuota
 from ..redis_utils.ratelimit import tdx_limiter
 from ..timeutil import today_tw
 from .base import Batch, Collector, FareRecord, LinkRecord, ScrapeError
@@ -40,6 +43,7 @@ from .http import Fetcher, FetchError
 AUTH_URL = "https://tdx.transportdata.tw/auth/realms/TDXConnect/protocol/openid-connect/token"
 API_URL = "https://tdx.transportdata.tw/api/basic/"
 MIN_INTERVAL = 12.5  # 秒；每分鐘 5 次的上限再留一點餘裕
+BASIC_POINTS = 2  # 基礎 API（/api/basic/）每次呼叫的點數
 
 MODES = ("台鐵", "公車")
 RAIL_SUFFIX = "（實際班次）"  # TDX 台鐵路段的路線名稱 = 骨架的路線名稱＋這個，不會和手寫的撞名
@@ -352,6 +356,7 @@ class TdxCollector(Collector):
         self.today = today
         self.redis = redis_client or get_redis()
         self.limiter = tdx_limiter(self.redis)  # 所有程式實例共用每分鐘 5 次
+        self.points = MonthlyQuota("tdx_points", settings.tdx_monthly_points_limit, self.redis)
         self._headers: dict[str, str] = {}
 
     @classmethod
@@ -388,8 +393,12 @@ class TdxCollector(Collector):
         return data["access_token"], int(data.get("expires_in", 86400))
 
     def _get(self, path: str):
+        if not self.points.available(BASIC_POINTS):  # 點數用完：整批不更新，保留上次的資料
+            raise ScrapeError(f"這個月的 TDX 點數用完了（上限 {self.points.limit} 點），等下個月再更新班表")
         self.limiter.wait()  # 碰到每分鐘 5 次的上限就排隊等（規格書 5.5）
-        return json.loads(self.fetcher.get(API_URL + path, headers=self._headers))
+        text = self.fetcher.get(API_URL + path, headers=self._headers)
+        self.points.consume(BASIC_POINTS)
+        return json.loads(text)
 
     def _link(self, link: NetLink, line: str, ride: int, timing: tuple[int, int, int]) -> LinkRecord:
         first, last, headway = timing

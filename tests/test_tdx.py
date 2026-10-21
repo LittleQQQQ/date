@@ -8,6 +8,7 @@ from sqlalchemy import func, select
 from app.collectors import tdx
 from app.collectors.base import ScrapeError
 from app.collectors.http import FetchError
+from app.config import settings
 from app.ingest import load_network, make_collector, run_collector
 from app.models import TransitFare, TransitLink
 from app.timeutil import hhmm, to_min
@@ -185,6 +186,23 @@ def test_missing_keys_stop_before_any_request():
     with pytest.raises(ScrapeError, match="TDX 金鑰"):
         collector.collect()
     assert fetcher.requested == []
+
+
+def test_each_basic_call_costs_two_points(redis_client):
+    fetcher = TdxFetcher()
+    network = tdx.Network({s.id: s for s in (A, B)}, [BUS_LINK])
+    collector = tdx.TdxCollector(network, fetcher=fetcher, client_id="id", client_secret="secret", today=DAY)
+    collector.collect()
+    calls = [u for u in fetcher.requested if "/api/basic/" in u]
+    assert calls and collector.points.used() == tdx.BASIC_POINTS * len(calls)  # 換 token 不算
+
+
+def test_running_out_of_points_keeps_the_old_data(monkeypatch):
+    monkeypatch.setattr(settings, "tdx_monthly_points_limit", 3)  # 只夠呼叫一次
+    fetcher = TdxFetcher()
+    with pytest.raises(ScrapeError, match="點數用完"):
+        _collect([BUS_LINK], fetcher)
+    assert len([u for u in fetcher.requested if "/api/basic/" in u]) == 1
 
 
 def test_any_failed_request_keeps_the_old_data():

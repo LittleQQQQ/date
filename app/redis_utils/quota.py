@@ -4,7 +4,7 @@ key 是 quota:{對象}:{YYYY-MM}，例如 quota:google:details_enterprise:2026-1
 呼叫外部服務前先用 available() 檢查，呼叫成功後再 consume()；Redis 重開最多少記最近 60 秒，靠 5% 邊際吸收。
 
 | 對象 | 上限 | 用完時 |
-| tdx_points | 9,000 單位 | 停止地理編碼和班表更新 |
+| tdx_points | 9,000 點（基礎呼叫 2 點） | 停止班表更新，路網保留上次的資料 |
 | google:nearby_pro | 4,750 | 暫停找新餐廳 |
 | google:details_enterprise | 950 | 規劃改用 OSM 餐廳 |
 | google:details_essentials | 9,500 | 暫停更新座標 |

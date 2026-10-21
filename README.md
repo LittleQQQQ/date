@@ -202,6 +202,7 @@ docker compose logs quick-tunnel
 | `DATABASE_URL`、`REDIS_URL` | 開發環境的網址 | Docker 主機不用填，compose 會設定 |
 | `DB_PASSWORD` | — | 只有 Docker 主機要填：資料庫密碼 |
 | `TDX_CLIENT_ID`、`TDX_CLIENT_SECRET` | 空 | 交通部 TDX 金鑰；空 = 用路網骨架的估計值 |
+| `TDX_MONTHLY_POINTS_LIMIT` | `9000` | TDX 每月點數上限（基礎呼叫 2 點）；用完就停止更新班表，保留上次的資料 |
 | `GOOGLE_PLACES_API_KEY` | 空 | Google Places API (New) 金鑰；空 = 餐廳只用 OSM |
 | `GOOGLE_NEARBY_MONTHLY_LIMIT`、`GOOGLE_DETAILS_MONTHLY_LIMIT`、`GOOGLE_LOCATION_MONTHLY_LIMIT` | 4750、950、9500 | 自家每月上限（免費額度留 5%）；第一次試用可以先設小一點 |
 | `JEV_MODE`、`TYPESAFE_API_KEY` | `mock`、空 | `api` = TypeSafe 正式 API |
@@ -271,7 +272,7 @@ docker compose logs quick-tunnel
 
 ## 外部服務
 
-**交通部 TDX**：到 [TDX](https://tdx.transportdata.tw/) 免費註冊，在「會員中心 → 資料服務 → API 金鑰」建立金鑰，把 Client Id 和 Client Secret 填進 `.env`。每週更新路網骨架裡台鐵、公車路段的班表與票價；免費方案每分鐘最多 5 次，所有程式共用一個限流。
+**交通部 TDX**：到 [TDX](https://tdx.transportdata.tw/) 免費註冊，在「會員中心 → 資料服務 → API 金鑰」建立金鑰，把 Client Id 和 Client Secret 填進 `.env`。每週更新路網骨架裡台鐵、公車路段的班表與票價；免費方案每分鐘最多 5 次，所有程式共用一個限流。每次呼叫算 2 點，每月上限 9,000 點（一次更新約 10 點），用完就等下個月，路網保留上次的資料。
 
 **Google Places API (New)**：在 Google Cloud Console 啟用 **Places API (New)**，建立金鑰並把「API 限制」設成只能用它。
 
@@ -281,9 +282,9 @@ docker compose logs quick-tunnel
 | 補店家資料（店名、地址、營業時間、價位） | 規劃時，每次最多 10 家 | Enterprise | 950（用完就改用 OSM） |
 | 更新座標 | 每天 03:00，超過 25 天的 | Essentials | 9,500 |
 
-依 Google 條款，資料庫只存 place_id 和 30 天內的座標，店名等內容只在記憶體裡用，也不放進 Redis；畫面上標示「資料來源：Google Maps」。第一次試用建議把三個上限先設成 10，跑一次 `python -m app.ingest google` 確認正常再改回預設。
+逾時（10 秒）、連線失敗或 5xx 時最多重試 2 次（間隔 1 秒、2 秒），成功才算一次額度；4xx 不重試。依 Google 條款，資料庫只存 place_id 和 30 天內的座標，店名等內容只在記憶體裡用，也不放進 Redis；畫面上標示「資料來源：Google Maps」。第一次試用建議把三個上限先設成 10，跑一次 `python -m app.ingest google` 確認正常再改回預設。
 
-**Jev（TypeSafe）**：拿到金鑰後在 `.env` 設 `JEV_MODE=api`、`TYPESAFE_API_KEY`。每月預算 1 美元（`JEV_MONTHLY_BUDGET_MICRO_USD`），用完全部交給 LLM 備援；每分鐘最多 300 次。換模型版本後，舊的判斷會在每天 03:00 重新判斷。
+**Jev（TypeSafe）**：拿到金鑰後在 `.env` 設 `JEV_MODE=api`、`TYPESAFE_API_KEY`。每月預算 1 美元（`JEV_MONTHLY_BUDGET_MICRO_USD`），用完全部交給 LLM 備援；每分鐘最多 300 次。逾時、連線失敗或 5xx 時最多重試 2 次，還是失敗就交給 LLM 備援。換模型版本後，舊的判斷會在每天 03:00 重新判斷。
 
 ## 資料來源與標示
 

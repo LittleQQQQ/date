@@ -8,12 +8,14 @@ score 題回 {"score": 0.67, "confidence": …, "probabilities": {"0": …, "1":
 
 - 一次可以問好幾題，題目平行處理。
 - 碰到每分鐘上限（rl:jev）就排隊等；每月費用（quota:jev_cost_micro_usd）用完就不再呼叫，改由 LLM 備援。
+- 逾時（10 秒）、連線失敗、5xx 最多重試 2 次，間隔 1 秒、2 秒（規格書 8.3）；還是失敗就交給 LLM 備援。
 - 計費只算輸入 token，每百萬 token 約 0.042 美元。
 - 回應的模型版本記在 Redis（jev:model_version）：版本改變時，寫入時的判斷要全部重算。
 """
 from __future__ import annotations
 
 import math
+import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
@@ -21,6 +23,7 @@ import httpx
 import redis
 
 from ..config import settings
+from ..http_retry import send_with_retry
 from ..redis_utils import get_redis
 from ..redis_utils.quota import MonthlyQuota
 from ..redis_utils.ratelimit import SlidingWindow
@@ -48,23 +51,28 @@ class Answer:
 
 class TypeSafeJev:
     def __init__(self, api_key: str | None = None, client: httpx.Client | None = None,
-                 redis_client: redis.Redis | None = None):
+                 redis_client: redis.Redis | None = None, sleep: Callable[[float], None] = time.sleep):
         self.api_key = settings.typesafe_api_key if api_key is None else api_key
         self.http = client or httpx.Client(timeout=settings.jev_timeout)
         self.redis = redis_client or get_redis()
         self.limiter = SlidingWindow("rl:jev", settings.jev_rate_limit_per_minute, 60, self.redis)
         self.budget = MonthlyQuota("jev_cost_micro_usd", settings.jev_monthly_budget_micro_usd, self.redis)
         self.on_wait: Callable[[float], None] | None = None  # 碰到每分鐘上限、排隊等的時候通知（規劃時推送 waiting_quota）
+        self.sleep = sleep  # 重試前等待（測試時換掉）
 
     def ask(self, state: str, questions: list[Question]) -> dict[str, Answer]:
         if not self.api_key.strip():
             raise JevUnavailable("沒有設定 TYPESAFE_API_KEY")
         if not self.budget.available():
             raise JevUnavailable("這個月的 Jev 費用上限用完了")
-        self.limiter.wait(on_wait=self.on_wait)
         body = {"model": settings.jev_model, "state": state, "questions": {q.id: q.to_api() for q in questions}}
+
+        def send() -> httpx.Response:
+            self.limiter.wait(on_wait=self.on_wait)  # 重試也算一次呼叫
+            return self.http.post(API_URL, json=body, headers={"Authorization": f"Bearer {self.api_key}"})
+
         try:
-            resp = self.http.post(API_URL, json=body, headers={"Authorization": f"Bearer {self.api_key}"})
+            resp = send_with_retry(send, self.sleep)
             resp.raise_for_status()
             data = resp.json()
         except (httpx.HTTPError, ValueError) as exc:

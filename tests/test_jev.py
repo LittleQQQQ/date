@@ -44,8 +44,9 @@ def test_mock_area_reads_the_nearest_station():
 # ---------- 正式 API ----------
 
 
-def _api(handler):
-    return TypeSafeJev(api_key="secret-key", client=httpx.Client(transport=httpx.MockTransport(handler)))
+def _api(handler, waits=None):
+    sleep = waits.append if waits is not None else (lambda seconds: None)  # 重試不用真的等
+    return TypeSafeJev(api_key="secret-key", client=httpx.Client(transport=httpx.MockTransport(handler)), sleep=sleep)
 
 
 def test_api_request_and_answers_follow_the_official_format(redis_client):
@@ -95,6 +96,30 @@ def test_api_without_a_key_or_with_errors_is_unavailable():
         TypeSafeJev(api_key="").ask("x", [TIME_FIT])
     with pytest.raises(JevUnavailable, match="呼叫失敗"):
         _api(lambda request: httpx.Response(503)).ask("x", [TIME_FIT])
+
+
+def test_api_retries_timeouts_and_server_errors(redis_client):
+    attempts, waits = [], []
+
+    def handler(request):
+        attempts.append(1)
+        if len(attempts) == 1:
+            raise httpx.ReadTimeout("太慢了", request=request)
+        if len(attempts) == 2:
+            return httpx.Response(502)
+        return httpx.Response(200, json={
+            "model": "jev-1.14.0", "usage": {"input_tokens": 10},
+            "answers": {"time_fit": {"type": "score", "score": 0.5, "confidence": 0.9, "probabilities": {"0": 0.1, "1": 0.8, "2": 0.1}}},
+        })
+
+    assert _api(handler, waits).ask("x", [TIME_FIT])["time_fit"].score == 0.5
+    assert len(attempts) == 3 and waits == [1.0, 2.0]
+    assert redis_client.zcard("rl:jev") == 3  # 每次重試都算進每分鐘上限
+
+    attempts.clear()
+    with pytest.raises(JevUnavailable):  # 4xx（例如金鑰錯）不重試
+        _api(lambda request: attempts.append(1) or httpx.Response(401), waits).ask("x", [TIME_FIT])
+    assert len(attempts) == 1
 
 
 # ---------- LLM 備援 ----------

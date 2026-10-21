@@ -12,11 +12,14 @@
 from __future__ import annotations
 
 import logging
+import time
+from collections.abc import Callable
 
 import httpx
 import redis
 
 from ..config import settings
+from ..http_retry import send_with_retry
 from ..redis_utils import get_redis
 from ..redis_utils.quota import MonthlyQuota
 from .osm import CUISINES, ESTIMATED_HOURS, week_hours
@@ -138,9 +141,11 @@ def _error_text(resp: httpx.Response) -> str:
 
 
 class GooglePlaces:
-    def __init__(self, api_key: str | None = None, client: httpx.Client | None = None, redis_client: redis.Redis | None = None):
+    def __init__(self, api_key: str | None = None, client: httpx.Client | None = None, redis_client: redis.Redis | None = None,
+                 sleep: Callable[[float], None] = time.sleep):
         self.api_key = settings.google_places_api_key if api_key is None else api_key
         self.http = client or httpx.Client(timeout=10.0)
+        self.sleep = sleep  # 重試前等待（測試時換掉）
         r = redis_client or get_redis()
         self.nearby_quota = MonthlyQuota("google:nearby_pro", settings.google_nearby_monthly_limit, r)
         self.details_quota = details_quota(r)
@@ -152,8 +157,8 @@ class GooglePlaces:
         if not quota.available():
             raise QuotaExhausted(f"{quota.name} 這個月的上限（{quota.limit} 次）用完了")
         headers = {"X-Goog-Api-Key": self.api_key, "X-Goog-FieldMask": ",".join(fields)}
-        try:
-            resp = self.http.request(method, url, headers=headers, **kwargs)
+        try:  # 逾時、連線失敗、5xx 最多重試 2 次（規格書 8.3）
+            resp = send_with_retry(lambda: self.http.request(method, url, headers=headers, **kwargs), self.sleep)
         except httpx.RequestError as exc:
             raise PlacesError(f"連不上 Google（{type(exc).__name__}）") from exc
         if resp.status_code == 404:

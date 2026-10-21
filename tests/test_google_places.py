@@ -84,7 +84,8 @@ class FakeGoogle:
 
 
 def client(fake: FakeGoogle, redis_client, api_key: str = "test-key") -> GooglePlaces:
-    return GooglePlaces(api_key=api_key, client=httpx.Client(transport=httpx.MockTransport(fake)), redis_client=redis_client)
+    return GooglePlaces(api_key=api_key, client=httpx.Client(transport=httpx.MockTransport(fake)), redis_client=redis_client,
+                        sleep=lambda seconds: None)  # 重試不用真的等
 
 
 # ---------- 呼叫 ----------
@@ -136,6 +137,23 @@ def test_errors(redis_client):
     with pytest.raises(PlacesError, match="沒有設定"):
         client(fake, redis_client, api_key="").details("ChIJramen")
     assert len(fake.requests) == 2  # 沒有金鑰就不送出
+
+
+def test_server_errors_are_retried_and_counted_once(redis_client):
+    codes, waits = [503, 500, 200], []
+
+    def handler(request):
+        code = codes.pop(0)
+        return httpx.Response(code, json={"displayName": {"text": "麵屋一燈"}} if code == 200 else {})
+
+    google = GooglePlaces(api_key="test-key", client=httpx.Client(transport=httpx.MockTransport(handler)),
+                          redis_client=redis_client, sleep=waits.append)
+    assert google.details("ChIJramen")["displayName"]["text"] == "麵屋一燈"
+    assert waits == [1.0, 2.0] and google.details_quota.used() == 1  # 重試成功只算一次
+    codes[:] = [503, 503, 503]
+    with pytest.raises(PlacesError, match="伺服器錯誤"):
+        google.details("ChIJramen")
+    assert google.details_quota.used() == 1  # 失敗不計
 
 
 def test_types_become_osm_like_tags():

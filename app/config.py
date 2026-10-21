@@ -55,6 +55,8 @@ class Settings(BaseSettings):
     # 交通部 TDX（規格書 v0.2 3.2）：每週更新台鐵、公車的班表與票價；留空就用路網骨架的估計值
     tdx_client_id: str = ""
     tdx_client_secret: str = ""
+    # 每月點數上限（規格書 5.5）：基礎呼叫 2 點、進階 15 點；每週更新班表約 5 次基礎呼叫（10 點）
+    tdx_monthly_points_limit: int = 9000
 
     @property
     def cors_origin_list(self) -> list[str]:
