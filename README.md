@@ -80,7 +80,7 @@
 | 停止（資料保留） | `docker compose down` |
 | 連資料一起刪掉 | `docker compose down -v` |
 | 看各服務狀態 | `docker compose ps` |
-| 手動補抓 | `docker compose exec worker python -m app.ingest atmovies`（或 `osm`、`tdx`、`google`） |
+| 手動補抓 | `docker compose exec worker python -m app.ingest atmovies`（或 `osm`、`tdx`、`google`），之後再跑 `docker compose exec worker python -m app.ingest judge` |
 | 健康檢查 | `http://localhost:8000/api/health` |
 
 **注意**
@@ -231,7 +231,7 @@ docker compose logs quick-tunnel
    ```powershell
    .venv\Scripts\alembic.exe upgrade head
    ```
-4. 匯入資料（依序）：`network`（路網骨架）→ `seed`（暫定的類別、地標、票價）→ `atmovies`（開眼場次，約幾分鐘）→ `osm`（餐廳）→ `tdx`（要有 TDX 金鑰）→ `google`（要有 Google 金鑰，跑完會印出本月用量）。每次執行都記在 `crawl_runs`：
+4. 匯入資料（依序）：`network`（路網骨架）→ `seed`（暫定的類別、地標、票價）→ `atmovies`（開眼場次，約幾分鐘）→ `osm`（餐廳）→ `tdx`（要有 TDX 金鑰）→ `google`（要有 Google 金鑰，跑完會印出本月用量）→ `judge`（Jev 判斷影城、餐廳屬於哪一區與電影種類、餐廳類別；沒跑的話每一區都沒有場次可選，要等每天 03:00 的排程）。每次執行都記在 `crawl_runs`：
    ```powershell
    .venv\Scripts\python.exe -m app.ingest network
    ```

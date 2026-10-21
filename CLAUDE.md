@@ -22,7 +22,9 @@
 2. 建虛擬環境、裝套件：`py -3 -m venv .venv`，再 `.venv\Scripts\python.exe -m pip install -r requirements.txt`
 3. 設定檔：複製 `.env.example` 為 `.env`。不用填任何金鑰也能跑，這時餐廳只用 OSM、交通用估計值、Jev 用模擬版。
 4. 建資料表：`.venv\Scripts\alembic.exe upgrade head`
-5. 匯入資料，依序執行 `.venv\Scripts\python.exe -m app.ingest <名稱>`：`network` → `seed` → `atmovies`（約 3～4 分鐘）→ `osm`（約 3～4 分鐘，Overpass 忙的時候可能失敗，再跑一次就好）。
+5. 匯入資料，依序執行 `.venv\Scripts\python.exe -m app.ingest <名稱>`：`network` → `seed` → `atmovies`（約 3～4 分鐘）→ `osm`（約 3～4 分鐘，Overpass 忙的時候可能失敗，再跑一次就好）→ `judge`（約 1～2 分鐘）。
+   - **`judge` 不能漏**：它請 Jev 判斷影城、餐廳屬於哪一區，以及電影種類、餐廳類別。沒跑的話網頁上每一區都顯示「還沒有場次資料」，要等每天 03:00 的排程才會補上。
+   - 有填 TDX 金鑰的話，在 `judge` 之前再跑 `tdx`（約 1 分鐘）。
 6. 跑測試確認：`.venv\Scripts\python.exe -m pytest`（全部要通過）
 7. 啟動：`.venv\Scripts\python.exe -m uvicorn app.main:app --port 8000`，另一個視窗開 worker：`.venv\Scripts\python.exe -m app.jobs.worker --simple`。打開 http://127.0.0.1:8000 排一次行程。
 
@@ -35,6 +37,7 @@
 
 ## 常用
 
+- 手動跑過 `atmovies`、`osm`、`google` 之後，再跑一次 `python -m app.ingest judge`（排程跑的會自動判斷，手動的不會）。
 - 改了 `app/models/` 之後：`.venv\Scripts\alembic.exe revision --autogenerate -m "說明"`，檢查產生的檔案再 `upgrade head`。
 - 程式碼結構見 `README.md` 的「專案結構」。
 - 規格書（《後端規格書》v0.2）不在這個 repo 裡，需要的話向專案負責人拿。

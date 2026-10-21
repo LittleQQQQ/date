@@ -6,6 +6,7 @@
     python -m app.ingest atmovies   # 開眼電影網：影城、電影、場次
     python -m app.ingest osm        # OpenStreetMap 餐廳
     python -m app.ingest tdx        # TDX 台鐵、公車的班表與票價（要在 .env 填 TDX 金鑰）
+    python -m app.ingest judge      # Jev 判斷還沒判斷過的影城、餐廳、電影（平常由每天的排程做）
 
 - 寫入一律用 PostgreSQL 的 INSERT … ON CONFLICT（UPSERT），重複執行結果相同。
 - 每次執行都記在 crawl_runs；失敗時整批 rollback，保留舊資料。
@@ -328,7 +329,10 @@ def make_collector(name: str, session: Session) -> Collector:
 
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="執行資料來源並匯入資料庫（資料表要先用 alembic upgrade head 建好）")
-    parser.add_argument("source", help="network、seed、google（Google 找餐廳，要有金鑰），或爬蟲名稱（atmovies、osm、tdx）")
+    parser.add_argument(
+        "source",
+        help="network、seed、judge（Jev 判斷區域與類別）、google（Google 找餐廳，要有金鑰），或爬蟲名稱（atmovies、osm、tdx）",
+    )
     args = parser.parse_args(argv)
 
     from .db import SessionLocal
@@ -338,12 +342,17 @@ def main(argv: list[str] | None = None) -> None:
             run = run_job(session, "network", lambda: load_network(session))
         elif args.source == "seed":
             run = run_job(session, "seed", lambda: load_seed(session))
+        elif args.source == "judge":
+            # 手動匯入的影城、餐廳要判斷過區域和類別才排得進行程；平常由每天的排程（refresh_job）做
+            from .jev.classify import judge_pending
+
+            run = run_job(session, "judge", lambda: judge_pending(session))
         elif args.source == "google":
             run = _run_google(session)
         else:
             run = run_collector(session, make_collector(args.source, session))
     if run.status == "success":
-        print(f"[{run.job}] 匯入完成：{run.stats}")
+        print(f"[{run.job}] {'判斷' if run.job == 'judge' else '匯入'}完成：{run.stats}")
     else:
         print(f"[{run.job}] 匯入失敗：{run.error}")
         sys.exit(1)

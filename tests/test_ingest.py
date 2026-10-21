@@ -170,3 +170,15 @@ def test_tdx_batch_replaces_the_previous_one(session):
     stats = write_batch(session, Batch(replace_tdx=True))  # 路線停駛了
     assert stats["stale_transit_links"] == 1
     assert _count(session, TransitLink, TransitLink.source == "tdx") == 0 and _count(session, TransitFare) == 0
+
+
+def test_judge_command_runs_the_pending_judgments(committed, capsys):
+    """手動匯入後，影城與餐廳的區域、類別要等 Jev 判斷才有；python -m app.ingest judge 直接跑一次，不用等每天的排程。"""
+    from app.db import SessionLocal
+    from app.ingest import main
+
+    main(["judge"])
+    assert "[judge] 判斷完成" in capsys.readouterr().out
+    with SessionLocal() as s:
+        run = s.scalar(select(CrawlRun).order_by(CrawlRun.id.desc()))
+    assert (run.job, run.status) == ("judge", "success")
